@@ -6,6 +6,10 @@ import { CiBarcode } from "react-icons/ci";
 import { useRouter } from "next/navigation";
 import { MdElectricBolt } from "react-icons/md";
 import { saveBill } from "../utils/billingStorage";
+import {
+  getCustomers,
+  addCustomer
+} from "../utils/storage";
 
 
 export default function POS() {
@@ -18,6 +22,39 @@ export default function POS() {
   const [customerMobile, setCustomerMobile] = useState("");
   const [paidAmount, setPaidAmount] = useState("");
   const [changeAmount, setChangeAmount] = useState("");
+
+const [customers, setCustomers] = useState([]);
+const [showCustomerList, setShowCustomerList] = useState(false);
+const [showAddCustomerModal, setShowAddCustomerModal] = useState(false); // ⭐ THIS WAS MISSING
+
+
+const filteredCustomers = customers.filter((c) =>
+  c.name.toLowerCase().includes(customerName.toLowerCase())
+);
+
+const saveNewCustomer = () => {
+  if (!customerName || !customerMobile) {
+    alert("Enter name & mobile");
+    return;
+  }
+
+  const newCustomer = {
+    id: Date.now(),
+    name: customerName,
+    mobile: customerMobile
+  };
+
+  addCustomer(newCustomer);
+  setCustomers(getCustomers());
+  setShowAddCustomerModal(false);
+
+  alert("Customer added ✅");
+};
+
+
+  useEffect(() => {
+  setCustomers(getCustomers());
+}, []);
 
   useEffect(() => {
   const savedCart = localStorage.getItem("posCart");
@@ -95,25 +132,44 @@ export default function POS() {
     setProducts(getProducts());
   }, []);
 
-  const addToCart = (product) => {
-    if (product.stock <= 0) return alert("Out of stock!");
-    const updatedCart = [...cart, { ...product, qty: 1, total: product.retail_price }];
-    setCart(updatedCart);
+ const addToCart = (product) => {
+  if (product.stock <= 0) return alert("Out of stock!");
 
-    // Deduct stock
-    const updatedProducts = products.map((p) =>
-      p.name === product.name ? { ...p, stock: p.stock - 1 } : p
-    );
-    setProducts(updatedProducts);
-    saveProducts(updatedProducts);
-  };
+  const price = Number(product.retail_price);
+
+  const updatedCart = [
+    ...cart,
+    {
+      ...product,
+      retail_price: price,   // 🔥 ensure number
+      qty: 1,
+      total: price
+    }
+  ];
+
+  setCart(updatedCart);
+
+  // Deduct stock
+  const updatedProducts = products.map((p) =>
+    p.name === product.name ? { ...p, stock: p.stock - 1 } : p
+  );
+
+  setProducts(updatedProducts);
+  saveProducts(updatedProducts);
+};
+
 
   const updateQty = (index, qty) => {
-    let updatedCart = [...cart];
-    updatedCart[index].qty = qty;
-    updatedCart[index].total = qty * updatedCart[index].retail_price;
-    setCart(updatedCart);
-  };
+  let updatedCart = [...cart];
+
+  const price = Number(updatedCart[index].retail_price);
+
+  updatedCart[index].qty = qty;
+  updatedCart[index].total = qty * price;
+
+  setCart(updatedCart);
+};
+
 
   const getTotal = () => cart.reduce((sum, i) => sum + i.total, 0);
 
@@ -193,7 +249,7 @@ const generateInvoice = () => {
     const price = item.retail_price.toFixed(2).toString().padStart(10, " ");
     const total = item.total.toFixed(2).toString().padStart(7, " ");
     doc.text(
-      `${name.padEnd(14, " ")}${qty}${retail_price}${total}`,
+      `${name.padEnd(14, " ")}${qty}${price}${total}`,
       2,
       y
     );
@@ -379,13 +435,51 @@ const generateInvoice = () => {
   <div className="gap-4 h-[48vh] relative">
     {/* Customer Name */}
     <div className="flex flex-col">
-      <input
-        id="customerName"
-        type="text"
-        onChange={(e)=>setCustomerName(e.target.value)}
-        placeholder="Enter customer name"
-        className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 outline-none transition"
-      />
+     <div className="relative">
+  <input
+    type="text"
+    value={customerName}
+    onChange={(e) => {
+      setCustomerName(e.target.value);
+      setShowCustomerList(true);
+    }}
+    onFocus={() => setShowCustomerList(true)}
+    placeholder="Enter customer name"
+    className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 w-full"
+  />
+
+  {/* Suggestions */}
+  {showCustomerList && customerName && (
+    <ul className="absolute z-50 bg-gray-700 border w-full mt-1 max-h-40 overflow-y-auto rounded shadow-lg">
+      
+      {filteredCustomers.map((c, i) => (
+        <li
+          key={i}
+          onClick={() => {
+            setCustomerName(c.name);
+            setCustomerMobile(c.mobile);
+            setShowCustomerList(false);
+          }}
+          className="px-3 py-2 cursor-pointer hover:bg-gray-600 flex justify-between"
+        >
+          <span>{c.name}</span>
+          <span className="text-sm text-gray-300">{c.mobile}</span>
+        </li>
+      ))}
+
+      {/* ➕ Add new customer option */}
+      {filteredCustomers.length === 0 && (
+        <li
+          onClick={() => setShowAddCustomerModal(true)}
+          className="px-3 py-2 cursor-pointer text-yellow-400 hover:bg-gray-600"
+        >
+          ➕ Add "{customerName}" as new customer
+        </li>
+      )}
+    </ul>
+  )}
+</div>
+
     </div>
 
     {/* Customer Mobile */}
@@ -475,6 +569,49 @@ const generateInvoice = () => {
   </div>
 </div>
 
+    
+ 
+
+
+
+{showAddCustomerModal && (
+  <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+    <div className="bg-white text-black p-6 rounded-xl w-[350px]">
+      <h2 className="text-xl font-bold mb-4">Add New Customer</h2>
+
+      <input
+        placeholder="Customer Name"
+        value={customerName}
+        onChange={(e)=>setCustomerName(e.target.value)}
+        className="border p-2 rounded w-full mb-3"
+      />
+
+      <input
+        placeholder="Mobile Number"
+        value={customerMobile}
+        onChange={(e)=>setCustomerMobile(e.target.value)}
+        className="border p-2 rounded w-full mb-4"
+      />
+
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={()=>setShowAddCustomerModal(false)}
+          className="bg-gray-400 text-white px-4 py-2 rounded"
+        >
+          Cancel
+        </button>
+
+        <button
+          onClick={saveNewCustomer}
+          className="bg-blue-600 text-white px-4 py-2 rounded"
+        >
+          Save Customer
+        </button>
+      </div>
     </div>
-  );
+  </div>
+)}
+
+</div>
+ );
 }
