@@ -1,19 +1,30 @@
 "use client";
 import { useEffect, useState } from "react";
 import jsPDF from "jspdf";
-import { getSales } from "@/app/utils/storage";
+import { getBills } from "../utils/billingStorage";
+
 
 export default function SalesPage() {
   const [sales, setSales] = useState([]);
 const [previewSale, setPreviewSale] = useState(null);
 
-  useEffect(() => {
-    loadSales();
-  }, []);
+ useEffect(() => {
+  loadSales();
+}, []);
 
-  const loadSales = async () => {
-    setSales(await getSales());
-  };
+  const loadSales = () => {
+  const bills = getBills();
+  
+  // convert bills → sales format (invoiceNo etc.)
+  const formatted = bills.map((b) => ({
+    ...b,
+    invoiceNo: "INV-" + b.id.toString().slice(-6),
+    date: new Date(b.date).toLocaleString(),
+  }));
+
+  setSales(formatted);
+};
+
 
   const viewInvoice = (sale) => {
   const doc = generateInvoiceDoc(sale);
