@@ -27,28 +27,65 @@ const [customers, setCustomers] = useState([]);
 const [showCustomerList, setShowCustomerList] = useState(false);
 const [showAddCustomerModal, setShowAddCustomerModal] = useState(false); // ⭐ THIS WAS MISSING
 
+const [showQuickItemModal, setShowQuickItemModal] = useState(false);
+const [quickItem, setQuickItem] = useState({
+  name: "",
+  price: ""
+});
+
 
 const filteredCustomers = customers.filter((c) =>
   c.name.toLowerCase().includes(customerName.toLowerCase())
 );
 
 const saveNewCustomer = () => {
-  if (!customerName || !customerMobile) {
-    alert("Enter name & mobile");
+  // only name required now
+  if (!customerName.trim()) {
+    alert("Enter customer name");
     return;
   }
 
   const newCustomer = {
-    id: Date.now(),
-    name: customerName,
-    mobile: customerMobile
+    name: customerName.trim(),
+    mobile: customerMobile ? customerMobile.trim() : ""   // optional
   };
 
-  addCustomer(newCustomer);
-  setCustomers(getCustomers());
+  const existing = JSON.parse(localStorage.getItem("customers") || "[]");
+
+  const updatedCustomers = [...existing, newCustomer];
+
+  localStorage.setItem("customers", JSON.stringify(updatedCustomers));
+  setCustomers(updatedCustomers);
+
+  // reset fields
+  setCustomerName("");
+  setCustomerMobile("");
   setShowAddCustomerModal(false);
 
   alert("Customer added ✅");
+};
+
+const addQuickItemToCart = () => {
+  if (!quickItem.name.trim() || !quickItem.price) {
+    alert("Enter item name & price");
+    return;
+  }
+
+  const price = Number(quickItem.price);
+
+  const newItem = {
+    name: quickItem.name,
+    retail_price: price,
+    qty: 1,
+    total: price,
+    barcode: "quick_" + Date.now() // unique id
+  };
+
+  setCart([...cart, newItem]);
+
+  // reset
+  setQuickItem({ name: "", price: "" });
+  setShowQuickItemModal(false);
 };
 
 
@@ -411,7 +448,13 @@ const generateInvoice = () => {
     </tbody>
   </table>
 
- <button onClick={()=>("")} className="absolute right-6 bottom-6 rounded-full bg-blue-700 p-2 text-2xl"><MdElectricBolt /></button>
+ <button
+  onClick={() => setShowQuickItemModal(true)}
+  className="absolute right-6 bottom-6 rounded-full bg-blue-700 p-2 text-2xl hover:bg-blue-600"
+>
+  <MdElectricBolt />
+</button>
+
 </div>
 
       {/* Total + Invoice */}
@@ -483,7 +526,7 @@ const generateInvoice = () => {
     </div>
 
     {/* Customer Mobile */}
-    <div className="flex flex-col mt-2">
+    {/* <div className="flex flex-col mt-2">
       <input
         id="customerMobile"
         type="tel"
@@ -491,7 +534,7 @@ const generateInvoice = () => {
         placeholder="Enter mobile number"
         className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 outline-none transition"
       />
-    </div>
+    </div> */}
 
     <div className="absolute bottom-0 right-0">
         {/* Total Amount */}
@@ -606,6 +649,51 @@ const generateInvoice = () => {
           className="bg-blue-600 text-white px-4 py-2 rounded"
         >
           Save Customer
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+
+{/* ⚡ QUICK ITEM MODAL */}
+{showQuickItemModal && (
+  <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+    <div className="bg-white text-black p-6 rounded-xl w-[350px] shadow-xl">
+      <h2 className="text-xl font-bold mb-4">⚡ Quick Add Item</h2>
+
+      <input
+        placeholder="Item Name (eg: Carry Bag)"
+        value={quickItem.name}
+        onChange={(e) =>
+          setQuickItem({ ...quickItem, name: e.target.value })
+        }
+        className="border p-2 rounded w-full mb-3"
+      />
+
+      <input
+        type="number"
+        placeholder="Price"
+        value={quickItem.price}
+        onChange={(e) =>
+          setQuickItem({ ...quickItem, price: e.target.value })
+        }
+        className="border p-2 rounded w-full mb-4"
+      />
+
+      <div className="flex justify-end gap-3">
+        <button
+          onClick={() => setShowQuickItemModal(false)}
+          className="bg-gray-500 text-white px-4 py-2 rounded"
+        >
+          Cancel
+        </button>
+
+        <button
+          onClick={addQuickItemToCart}
+          className="bg-blue-600 text-white px-4 py-2 rounded"
+        >
+          Add to Cart
         </button>
       </div>
     </div>
