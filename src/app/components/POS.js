@@ -1,7 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { getProducts, saveProducts } from "../utils/storage";
-import jsPDF from "jspdf";
 import { CiBarcode } from "react-icons/ci";
 import { useRouter } from "next/navigation";
 import { MdElectricBolt } from "react-icons/md";
@@ -10,6 +9,7 @@ import {
   getCustomers,
   addCustomer
 } from "../utils/storage";
+import { toast } from "react-toastify";
 
 
 export default function POS() {
@@ -20,8 +20,11 @@ export default function POS() {
 
   const [customerName, setCustomerName] = useState("");
   const [customerMobile, setCustomerMobile] = useState("");
-  const [paidAmount, setPaidAmount] = useState("");
-  const [changeAmount, setChangeAmount] = useState("");
+const [paymentMode, setPaymentMode] = useState("cash");
+const [paidAmount, setPaidAmount] = useState("");
+const [changeAmount, setChangeAmount] = useState(0);
+const [udharAmount, setUdharAmount] = useState(0);
+
 
 const [customers, setCustomers] = useState([]);
 const [showCustomerList, setShowCustomerList] = useState(false);
@@ -41,7 +44,7 @@ const filteredCustomers = customers.filter((c) =>
 const saveNewCustomer = () => {
   // only name required now
   if (!customerName.trim()) {
-    alert("Enter customer name");
+    toast.error("Enter customer name");
     return;
   }
 
@@ -62,12 +65,12 @@ const saveNewCustomer = () => {
   setCustomerMobile("");
   setShowAddCustomerModal(false);
 
-  alert("Customer added ✅");
+  toast.success("Customer added ✅");
 };
 
 const addQuickItemToCart = () => {
   if (!quickItem.name.trim() || !quickItem.price) {
-    alert("Enter item name & price");
+    toast.error("Enter item name & price");
     return;
   }
 
@@ -102,39 +105,84 @@ const addQuickItemToCart = () => {
     localStorage.setItem("posCart", JSON.stringify(cart));
     }, [cart]);
 
-    
-    const completePayment = () => {
-  if (cart.length === 0) return alert("Cart is empty!");
-  if (!paidAmount || paidAmount < getTotal())
-    return alert("Enter valid paid amount");
+    const handlePaymentCalculation = (value) => {
+  const total = getTotal();
 
-  // 🧾 CREATE BILL OBJECT
+  if (value === "") {
+    setPaidAmount("");
+    setChangeAmount(0);
+    setUdharAmount(0);
+    return;
+  }
+
+  const paid = Number(value);
+  setPaidAmount(paid);
+
+  if (paid >= total) {
+    setChangeAmount(paid - total);
+    setUdharAmount(0);
+  } else {
+    setChangeAmount(0);
+    setUdharAmount(total - paid);
+  }
+};
+
+
+  const completePayment = async () => {
+  if (cart.length === 0) {
+    toast.error("Cart is empty!");
+    return;
+  }
+
+  const total = getTotal();
+
+  // Udhar mode
+  if (paymentMode === "udhar") {
+    setUdharAmount(total);
+  }
+
+  // Cash / UPI full payment required
+  if (paymentMode === "cash" || paymentMode === "upi") {
+    if (paidAmount === "" || paidAmount < total) {
+      toast.error("Customer has not paid full amount!");
+      return;
+    }
+  }
+
+  // Split payment validation
+  if (paymentMode === "split") {
+    if (paidAmount === "" || paidAmount <= 0) {
+      toast.warning("Enter paid amount for split payment");
+      return;
+    }
+  }
+
   const bill = {
     id: Date.now(),
     date: new Date().toISOString(),
     customerName: customerName || "Walk-in",
-    customerMobile,
-    paymentMode: "Cash",
+    paymentMode,
     items: cart,
-    total: getTotal(),
+    total,
+    paidAmount: paymentMode === "udhar" ? 0 : paidAmount,
+    changeAmount,
+    udharAmount: paymentMode === "udhar" ? total : udharAmount,
   };
 
-  // 💾 SAVE BILL → THIS FIXES DASHBOARD
   saveBill(bill);
+  await generateInvoice();
 
-  // 🖨️ generate invoice
-  generateInvoice();
-
-  // 🔄 RESET POS
   setCart([]);
   localStorage.removeItem("posCart");
   setCustomerName("");
-  setCustomerMobile("");
   setPaidAmount("");
-  setChangeAmount("");
+  setChangeAmount(0);
+  setUdharAmount(0);
+  setPaymentMode("cash");
 
-  alert("Bill Saved & Invoice Generated ✅");
+  toast.success("Bill Completed & Downloaded ✅");
 };
+
 
 
   // Focus input by default
@@ -170,7 +218,7 @@ const addQuickItemToCart = () => {
   }, []);
 
  const addToCart = (product) => {
-  if (product.stock <= 0) return alert("Out of stock!");
+  if (product.stock <= 0) return toast.warning("Out of stock!");
 
   const price = Number(product.retail_price);
 
@@ -221,128 +269,110 @@ const calculateChange = (paid, total) => {
 };
 
 
-const generateInvoice = () => {
+const generateInvoice = async () => {
+  const { default: jsPDF } = await import("jspdf");
+
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
-    format: [80, 200], // 3-inch printer width (~80mm), height auto-adjust
+    format: [80, 200], // thermal printer size
   });
 
-  let y = 10; // vertical position
+  let y = 10;
 
   // ---------- Header ----------
   doc.setFont("courier", "bold");
   doc.setFontSize(13);
   doc.text("KiranaNeeds Store", 40, y, { align: "center" });
   y += 3;
-  doc.setFont("courier", "semibold");
+
+  doc.setFont("courier", "normal");
   doc.setFontSize(8);
   doc.text("Har Ghar Ka Bharosa", 40, y, { align: "center" });
   y += 5;
-  doc.setFont("courier", "normal");
+
   doc.text("Prithviganj Bazaar, Patti Pratapgarh", 40, y, { align: "center" });
   y += 5;
-  doc.setFont("courier", "semibold");
-  doc.text("Order on Call / Whatsapp: 8601096821", 40, y, { align: "center" });
+
+  doc.text("Call/WhatsApp: 8601096821", 40, y, { align: "center" });
   y += 6;
 
-   // ---------- Invoice Info ----------
+  // ---------- Bill Info ----------
   doc.setFontSize(9);
   const invoiceNo = "INV-" + Date.now().toString().slice(-6);
   const date = new Date().toLocaleString();
+
   doc.text(`Bill No: ${invoiceNo}`, 5, y);
   y += 4;
   doc.text(`Date: ${date}`, 5, y);
   y += 5;
 
-  if (customerName || customerMobile) {
-    doc.text(
-      `Customer: ${customerName || "Walk-in"} | Mob: ${
-        customerMobile || "-"
-      }`,
-      5,
-      y
-    );
+  if (customerName) {
+    doc.text(`Customer: ${customerName}`, 5, y);
     y += 5;
   }
-  
+
   // ---------- Divider ----------
-  doc.setFont("courier", "normal");
   doc.text("------------------------------------------", 0, y);
   y += 5;
 
-    // ---------- Table Header ----------
+  // ---------- Table Header ----------
   doc.setFont("courier", "bold");
-  doc.text("Item                Qty   Rate   Total", 2, y);
+  doc.text("Item            Qty   Rate   Total", 2, y);
   y += 4;
   doc.setFont("courier", "normal");
   doc.text("------------------------------------------", 0, y);
   y += 5;
 
-   // ---------- Items ----------
+  // ---------- Items ----------
   cart.forEach((item) => {
     let name = item.name.length > 12 ? item.name.slice(0, 12) : item.name;
-    const qty = item.qty.toString().padStart(7, " ");
-    const price = item.retail_price.toFixed(2).toString().padStart(10, " ");
+    const qty = item.qty.toString().padStart(6, " ");
+    const price = item.retail_price.toFixed(2).toString().padStart(9, " ");
     const total = item.total.toFixed(2).toString().padStart(7, " ");
-    doc.text(
-      `${name.padEnd(14, " ")}${qty}${price}${total}`,
-      2,
-      y
-    );
+
+    doc.text(`${name.padEnd(14)}${qty}${price}${total}`, 2, y);
     y += 5;
   });
- 
-  // Separator
-  doc.text("-------------------------------------------", 0, y);
+
+  // ---------- Totals ----------
+  doc.text("------------------------------------------", 0, y);
   y += 5;
 
-  // Total
+  const totalAmount = getTotal();
+
   doc.setFont("courier", "bold");
-  doc.text(`Grand Total: ${getTotal()}.00`, 40, y);
+  doc.text(`Grand Total : ${totalAmount}`, 2, y);
+  y += 5;
+
+  doc.setFont("courier", "normal");
+  // ⭐ NEW VALUES ADDED HERE
+  doc.text(`Payment Mode : ${paymentMode.toUpperCase()}`, 2, y);
   y += 5;
   doc.setFont("courier", "normal");
-  doc.text(`Paid: ${paidAmount}`, 58, y);
+  doc.text(`Paid Amount  : ${paidAmount || 0}`, 2, y);
   y += 5;
+
   doc.setFont("courier", "normal");
-  doc.text(`Change: ${changeAmount}`, 49, y);
+  doc.text(`Change       : ${changeAmount || 0}`, 2, y);
   y += 5;
 
+  doc.setFont("courier", "normal");
+  doc.text(`Udhar        : ${udharAmount || 0}`, 2, y);
+  y += 6;
 
-
-  // const gst = subTotal * 0.05;
-  // const discount = discountAmount;
-  // const grandTotal = subTotal + gst - discount;
-  // const paid = paidAmount;
-  // const change = paid - grandTotal;
-
-  // doc.setFont("courier", "bold");
-  // doc.text(`Subtotal: ₹${subTotal.toFixed(2)}`, 2, y);
-  // y += 5;
-  // doc.text(`GST (5%): ₹${gst.toFixed(2)}`, 2, y);
-  // y += 5;
-  // if (discount > 0) {
-  //   doc.text(`Discount: ₹${discount.toFixed(2)}`, 2, y);
-  //   y += 5;
-  // }
-  // doc.text(`Total: ₹${grandTotal.toFixed(2)}`, 2, y);
-  // y += 5;
-  
-
-
-
-  
-   // ---------- Footer ----------
+  // ---------- Footer ----------
   doc.text("------------------------------------------", 0, y);
   y += 6;
-  doc.setFont("courier", "normal");
-  doc.text("Thank you for shopping with us!", 40, y, { align: "center" });
+
+  doc.text("Thank you for shopping!", 40, y, { align: "center" });
   y += 5;
-  doc.text("Visit Again", 40, y, { align: "center" });
-
-  doc.save("Kirananeeds_bill.pdf");
-
+  doc.setFont("courier", "normal");
+  doc.text("Visit Again !", 40, y, { align: "center" });
+  doc.save("KiranaNeeds_Bill.pdf");
 };
+
+
 
   const filteredProducts = products.filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase())
@@ -540,24 +570,58 @@ const generateInvoice = () => {
         {/* Total Amount */}
         <h2 className="text-2xl text-end text-green-500 mt-5 font-semibold">Total Bill: ₹{getTotal()}.00</h2>
         {/* amount Paid */}
-        <div className="flex mt-2 justify-end">
-            <input
-              type="number"
-              required
-              value={paidAmount || ""}   // 👈 important change
-              onChange={(e) => {
-                const value = e.target.value === "" ? "" : Number(e.target.value);
-                setPaidAmount(value);
-                if (value === "") {
-                  setChangeAmount(0);
-                } else {
-                  setChangeAmount(calculateChange(value, getTotal()));
-                }
-              }}
-              placeholder="Enter Paid Amount"
-              className="bg-gray-800 w-50 border border-gray-700 text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 outline-none transition"
-            />
-        </div>
+        {/* Payment Mode */}
+<div className="flex gap-2 justify-end mt-3">
+  {["cash","upi","udhar","split"].map((mode)=>(
+    <button
+      key={mode}
+      onClick={()=> {
+        setPaymentMode(mode);
+        setPaidAmount("");
+        setChangeAmount(0);
+        setUdharAmount(0);
+      }}
+      className={`px-3 py-1 rounded capitalize border ${
+        paymentMode===mode
+          ? "bg-yellow-500 text-black"
+          : "bg-gray-800 text-white border-gray-700"
+      }`}
+    >
+      {mode}
+    </button>
+  ))}
+</div>
+
+{paymentMode !== "udhar" && (
+  <div className="flex mt-2 justify-end">
+    <input
+      type="number"
+      value={paidAmount || ""}
+      onChange={(e)=>handlePaymentCalculation(e.target.value)}
+      placeholder="Enter Paid Amount"
+      className="bg-gray-800 w-50 border border-gray-700 text-white rounded-lg px-3 py-2"
+    />
+  </div>
+)}
+
+{paymentMode === "udhar" && (
+  <h2 className="text-end text-orange-400 mt-2">
+    Full Amount Udhar : ₹{getTotal()}
+  </h2>
+)}
+
+{changeAmount > 0 && (
+  <h2 className="text-end text-green-400 mt-2">
+    Change Return : ₹{changeAmount}
+  </h2>
+)}
+
+{udharAmount > 0 && paymentMode !== "udhar" && (
+  <h2 className="text-end text-red-400 mt-2">
+    Remaining Udhar : ₹{udharAmount}
+  </h2>
+)}
+
 
         {/* Return change */}
        {changeAmount >0 &&
@@ -576,7 +640,7 @@ const generateInvoice = () => {
   {/* Save Draft */}
   <button
   disabled
-    onClick={() => alert("Draft saved (demo)")}
+    onClick={() => toast.success("Draft saved (demo)")}
     className="bg-yellow-500 hover:bg-yellow-600 p-3 rounded-lg font-semibold shadow"
   >
     Hold Bill
@@ -584,7 +648,7 @@ const generateInvoice = () => {
 
    <button
    disabled
-    onClick={() => alert("Draft saved (demo)")}
+    onClick={() => toast.warning("Draft saved (demo)")}
     className="bg-green-500 hover:bg-yellow-600 p-3 rounded-lg font-semibold shadow"
   >
     Save for Later
@@ -602,12 +666,13 @@ const generateInvoice = () => {
 
   {/* Generate Invoice */}
   <button
-    type="submit"
-    onClick={()=>paidAmount>0 ? completePayment():alert("Enter Amount")}
-    className="bg-blue-600 hover:bg-blue-700 p-3 rounded-lg font-semibold shadow"
-  >
-    Complete Bill
-  </button>
+  type="button"
+  onClick={completePayment}
+  className="bg-blue-600 hover:bg-blue-700 p-3 rounded-lg font-semibold shadow"
+>
+  Complete Bill
+</button>
+
 
   </div>
 </div>
@@ -659,7 +724,7 @@ const generateInvoice = () => {
 {/* ⚡ QUICK ITEM MODAL */}
 {showQuickItemModal && (
   <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-    <div className="bg-white text-black p-6 rounded-xl w-[350px] shadow-xl">
+    <div className="bg-white text-black p-6 rounded-xl w-['350px'] shadow-xl">
       <h2 className="text-xl font-bold mb-4">⚡ Quick Add Item</h2>
 
       <input
