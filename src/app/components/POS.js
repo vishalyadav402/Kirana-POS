@@ -10,6 +10,7 @@ import {
   addCustomer
 } from "../utils/storage";
 import { toast } from "react-toastify";
+import Customers from "./Customers";
 
 
 export default function POS() {
@@ -36,6 +37,7 @@ const [quickItem, setQuickItem] = useState({
   price: ""
 });
 
+const [showCustomersModal, setShowCustomersModal] = useState(false);
 
 const filteredCustomers = customers.filter((c) =>
   c.name.toLowerCase().includes(customerName.toLowerCase())
@@ -190,6 +192,15 @@ const addQuickItemToCart = () => {
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  const quickItemRef = useRef(null);
+  useEffect(() => {
+  if (showQuickItemModal) {
+    setTimeout(() => {
+      quickItemRef.current?.focus();
+    }, 100);
+  }
+}, [showQuickItemModal]);
 
   // Reset highlight when search changes
   useEffect(() => {
@@ -387,7 +398,7 @@ const generateInvoice = async () => {
         <div className="flex justify-between gap-2">
         <h2 className="text-xl mb-3">KiranaNeeds Point of Sale (POS)</h2>
         <div>
-        <button className="rounded p-2 py-1 bg-blue-400" onClick={()=>router.push("/products")}>+ New Item</button>
+        <button className="rounded p-2 py-1 bg-blue-400"  onClick={() => window.open("/products", "_blank")}>+ New Item</button>
         </div>
         </div>
       <div className="relative mb-4">
@@ -502,7 +513,12 @@ const generateInvoice = async () => {
     🧾 Customer Details
   </h2>
   <div>
-  <button className="rounded p-2 py-1 bg-blue-400" onClick={()=>router.push("/customers")}>+ New Customer</button>
+  <button
+  className="rounded p-2 py-1 bg-blue-400"
+  onClick={() => setShowCustomersModal(true)}
+>
+  + New Customer
+</button>
   </div>
 </div>
   <div className="gap-4 h-[48vh] relative">
@@ -653,6 +669,7 @@ const generateInvoice = async () => {
   >
     Save for Later
   </button>
+
   {/* Clear Order */}
   <button
   onClick={() => {
@@ -684,7 +701,7 @@ const generateInvoice = async () => {
 
 {showAddCustomerModal && (
   <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-    <div className="bg-white text-black p-6 rounded-xl w-[350px]">
+    <div className="bg-white text-black p-6 rounded-xl w-['350px']">
       <h2 className="text-xl font-bold mb-4">Add New Customer</h2>
 
       <input
@@ -720,6 +737,10 @@ const generateInvoice = async () => {
   </div>
 )}
 
+<Customers
+  isOpen={showCustomersModal}
+  onClose={() => setShowCustomersModal(false)}
+/>
 
 {/* ⚡ QUICK ITEM MODAL */}
 {showQuickItemModal && (
@@ -728,6 +749,7 @@ const generateInvoice = async () => {
       <h2 className="text-xl font-bold mb-4">⚡ Quick Add Item</h2>
 
       <input
+        ref={quickItemRef}
         placeholder="Item Name (eg: Carry Bag)"
         value={quickItem.name}
         onChange={(e) =>

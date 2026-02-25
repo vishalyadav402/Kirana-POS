@@ -288,7 +288,7 @@ export default function ProductsPage() {
       {/* MODAL */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 m-2 rounded-xl w-[650px] shadow-xl">
+          <div className="bg-white p-6 m-2 rounded-xl w-['650px'] shadow-xl">
             <h2 className="text-xl font-bold mb-4">
               {editIndex !== null ? "Edit Product" : "Add Product"}
             </h2>
