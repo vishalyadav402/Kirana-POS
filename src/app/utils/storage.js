@@ -1,66 +1,90 @@
 "use client";
 
+import { syncSingleItem } from "./googleSheet";
+
 /* =========================
    PRODUCTS STORAGE
 ========================= */
 
-const PRODUCTS_KEY = "products";
+import { supabase } from "./supabase";
 
-export const getProducts = () => {
-  if (typeof window === "undefined") return [];
-  return JSON.parse(localStorage.getItem(PRODUCTS_KEY)) || [];
+// ✅ Fetch all active products from Supabase
+export const getProducts = async () => {
+  const { data, error } = await supabase
+    .from("products")
+    .select("*")
+    .eq("is_active", true)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Failed to fetch products:", error.message);
+    return [];
+  }
+
+  return data || [];
 };
 
-export const saveProducts = (products) => {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
-};
+// ✅ Fetch single product by id
+export const getProductById = async (id) => {
+  const { data, error } = await supabase
+    .from("products")
+    .select("*")
+    .eq("id", id)
+    .single();
 
+  if (error) return null;
+  return data;
+};
 /* =========================
    CUSTOMERS STORAGE
 ========================= */
 
-const CUSTOMERS_KEY = "customers";
+// const CUSTOMERS_KEY = "customers";/
 
-/* GET ALL CUSTOMERS */
-export const getCustomers = () => {
-  if (typeof window === "undefined") return [];
-  return JSON.parse(localStorage.getItem(CUSTOMERS_KEY)) || [];
+import { getDB } from "./db";
+import { enqueue } from "./sync";
+
+const generateId = () => crypto.randomUUID();
+
+// ─── CUSTOMERS ───────────────────────────────────────────
+
+export const getCustomers = async () => {
+  const db = await getDB();
+  return db.getAll("customers");
 };
 
-/* ADD CUSTOMER */
-export const addCustomer = (customer) => {
-  const customers = getCustomers();
-  const newCustomer = {
-    ...customer,
-    id: Date.now()
-  };
-  localStorage.setItem(
-    CUSTOMERS_KEY,
-    JSON.stringify([...customers, newCustomer])
-  );
+export const addCustomer = async (data) => {
+  const db = await getDB();
+  const record = { ...data, id: generateId(), created_at: new Date().toISOString() };
+  await db.put("customers", record);
+  await enqueue("insert", "customers", record);
+  return record;
 };
 
-/* UPDATE CUSTOMER */
-export const updateCustomer = (id, updatedData) => {
-  const customers = getCustomers().map((c) =>
-    c.id === id ? { ...c, ...updatedData } : c
-  );
-  localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(customers));
+export const updateCustomer = async (id, data) => {
+  const db = await getDB();
+  const existing = await db.get("customers", id);
+  const updated = { ...existing, ...data, id };
+  await db.put("customers", updated);
+  await enqueue("update", "customers", updated);
+  return updated;
 };
 
-/* DELETE CUSTOMER */
-export const deleteCustomer = (id) => {
-  const customers = getCustomers().filter((c) => c.id !== id);
-  localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(customers));
+export const deleteCustomer = async (id) => {
+  const db = await getDB();
+  await db.delete("customers", id);
+  await enqueue("delete", "customers", { id });
 };
 
+/* =========================
+   CATEGORY STORAGE
+========================= */
 
+const CATEGORY_KEY = "categories";
 
-// CATEGORY STORAGE
 export const getCategories = () => {
   if (typeof window === "undefined") return [];
-  return JSON.parse(localStorage.getItem("categories") || "[]");
+  return JSON.parse(localStorage.getItem(CATEGORY_KEY)) || [];
 };
 
 export const saveCategory = (category) => {
@@ -68,8 +92,22 @@ export const saveCategory = (category) => {
 
   const existing = getCategories();
 
-  if (!existing.includes(category)) {
-    const updated = [...existing, category];
-    localStorage.setItem("categories", JSON.stringify(updated));
+  // 🔥 prevent duplicate
+  const alreadyExists = existing.find(
+    (c) => c.name?.toLowerCase() === category.toLowerCase()
+  );
+
+  if (!alreadyExists) {
+    const newCategory = {
+      id: Date.now(),
+      name: category,
+    };
+
+    const updated = [...existing, newCategory];
+
+    localStorage.setItem(CATEGORY_KEY, JSON.stringify(updated));
+
+    // ✅ Sync only new category
+    syncSingleItem("Categories", newCategory);
   }
 };

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   getCustomers,
   addCustomer,
@@ -8,17 +8,31 @@ import {
 } from "@/app/utils/storage";
 
 const Customers = ({ isOpen, onClose }) => {
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== "undefined" ? navigator.onLine : true
+  );
   const [customers, setCustomers] = useState([]);
-  const [form, setForm] = useState({
-    name: "",
-    mobile: "",
-    address: ""
-  });
+  const [form, setForm] = useState({ name: "", mobile: "", address: "" });
   const [editId, setEditId] = useState(null);
+
+  const nameInputRef = useRef(null); // ✅ ref for name input
+
+  useEffect(() => {
+    const on = () => setIsOnline(true);
+    const off = () => setIsOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
       loadCustomers();
+      // ✅ focus name input when modal opens
+      setTimeout(() => nameInputRef.current?.focus(), 100);
     }
   }, [isOpen]);
 
@@ -32,16 +46,16 @@ const Customers = ({ isOpen, onClose }) => {
       alert("Name & Mobile required");
       return;
     }
-
     if (editId) {
       await updateCustomer(editId, form);
       setEditId(null);
     } else {
       await addCustomer(form);
     }
-
     setForm({ name: "", mobile: "", address: "" });
     loadCustomers();
+    // ✅ re-focus after save
+    setTimeout(() => nameInputRef.current?.focus(), 100);
   };
 
   const handleEdit = (customer) => {
@@ -51,6 +65,7 @@ const Customers = ({ isOpen, onClose }) => {
       address: customer.address || ""
     });
     setEditId(customer.id);
+    setTimeout(() => nameInputRef.current?.focus(), 100);
   };
 
   const handleDelete = async (id) => {
@@ -59,14 +74,13 @@ const Customers = ({ isOpen, onClose }) => {
     loadCustomers();
   };
 
-  // ❌ Don't render if closed
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="w-['900px'] bg-black/80 max-h-[85vh] border-2 overflow-y-auto rounded-xl p-6 relative shadow-2xl">
+      <div className="w-[900px] bg-black/80 max-h-[85vh] border-2 overflow-y-auto rounded-xl p-6 relative shadow-2xl">
 
-        {/* Close Button */}
+        {/* Header */}
         <button
           onClick={onClose}
           className="absolute top-3 right-4 text-xl font-bold text-gray-600 hover:text-red-600"
@@ -74,15 +88,23 @@ const Customers = ({ isOpen, onClose }) => {
           ✖
         </button>
 
-        <h1 className="text-2xl font-bold mb-4">👤 Customers</h1>
+        <div className="flex items-center gap-3 mb-4">
+          <h1 className="text-2xl font-bold">👤 Customers</h1>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+            isOnline ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"
+          }`}>
+            {isOnline ? "🟢 Online" : "🔴 Offline"}
+          </span>
+        </div>
 
         {/* Form */}
         <div className="grid grid-cols-3 gap-2 mb-4">
           <input
+            ref={nameInputRef} // ✅ attached here
             placeholder="Name"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="border p-2 rounded"
+            className="border capitalize p-2 rounded"
           />
           <input
             placeholder="Mobile"
@@ -94,7 +116,7 @@ const Customers = ({ isOpen, onClose }) => {
             placeholder="Address"
             value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })}
-            className="border p-2 rounded"
+            className="border capitalize p-2 rounded"
           />
         </div>
 
@@ -107,12 +129,12 @@ const Customers = ({ isOpen, onClose }) => {
           >
             {editId ? "Update Customer" : "Add Customer"}
           </button>
-
           {editId && (
             <button
               onClick={() => {
                 setEditId(null);
                 setForm({ name: "", mobile: "", address: "" });
+                setTimeout(() => nameInputRef.current?.focus(), 100);
               }}
               className="px-4 py-2 rounded bg-gray-500 text-white"
             >
