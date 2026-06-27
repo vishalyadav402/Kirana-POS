@@ -3,7 +3,9 @@
 // import { getProducts, saveProducts, getCategories, saveCategory } from "../utils/storage";
 
 
-// export default function ProductsPage() {
+export default function ProductsPage() {
+  <>
+  </>
 //   const [products, setProducts] = useState([]);
 //   const [search, setSearch] = useState("");
 //   const [showModal, setShowModal] = useState(false);
@@ -389,5 +391,5 @@
 //         </div>
 //       )}
 //     </div>
-//   );
-// }
+ // );
+}
