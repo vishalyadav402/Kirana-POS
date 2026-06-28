@@ -51,6 +51,7 @@ export default function POS() {
           null, videoRef.current,
           (result) => {
             if (result) {
+              playBeep(); // ✅ beep on scan
               const scannedCode = result.getText();
               const matched = products.find(
                 (p) => p.barcode === scannedCode || p.slug === scannedCode
@@ -207,6 +208,28 @@ export default function POS() {
     setCustomerName(""); setPaidAmount(""); setChangeAmount(0); setUdharAmount(0); setPaymentMode("cash");
     toast.success("Bill Completed & Downloaded ✅");
   }, [cart, paymentMode, paidAmount, changeAmount, udharAmount, customerName]);
+
+
+  const playBeep = () => {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(1800, ctx.currentTime); // high beep
+    gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+
+    oscillator.start(ctx.currentTime);
+    oscillator.stop(ctx.currentTime + 0.15);
+  } catch (e) {
+    console.warn("Beep failed:", e);
+  }
+};
 
   const handleKeyDown = (e) => {
     if (e.key === "ArrowDown") setHighlightedIndex((prev) => prev < flatSuggestions.length - 1 ? prev + 1 : prev);
