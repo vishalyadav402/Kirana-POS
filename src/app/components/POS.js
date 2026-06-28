@@ -37,6 +37,8 @@ export default function POS() {
 useEffect(() => {
   const handleShortcut = (e) => {
   if (e.key === "F2") { e.preventDefault(); setShowQuickItemModal(true); }
+  if (e.key === "F3") { e.preventDefault(); inputRef.current?.focus(); } // ✅ focus search
+  if (e.key === "F3") { e.preventDefault(); inputRef.current?.focus(); } // ✅ focus search
   if (e.key === "F4") { e.preventDefault(); setShowScanner(true); }       // barcode scanner
   if (e.key === "Escape") {                                                 // close any modal
     setShowQuickItemModal(false);
@@ -359,14 +361,16 @@ useEffect(() => {
 
       {/* Left Panel */}
       <div className="flex-1 flex p-4 flex-col border-r border-gray-700">
-        <div className="flex justify-between gap-2">
-          <h2 className="text-xl mb-3">KiranaNeeds Point of Sale (POS)</h2>
+        <div className="flex justify-between gap-2 mb-1">
+          <h2 className="text-lg mb-3">KiranaNeeds Point of Sale (POS)</h2>
+          <div>
           <button
-            className="rounded p-2 py-1 bg-blue-400"
+            className="rounded px-2 text-sm py-1 bg-blue-600"
             onClick={() => window.open("https://www.kirananeeds.com/admin/products", "_blank")}
           >
             + New Item
           </button>
+          </div>
         </div>
 
         {/* Search */}
@@ -375,7 +379,7 @@ useEffect(() => {
             <input
               ref={inputRef}
               type="text"
-              placeholder="I want to sell.."
+              placeholder="Press 'f3' to add new item"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -384,8 +388,9 @@ useEffect(() => {
             <button
             type="button"
             onClick={() => setShowScanner(true)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+            className="absolute flex gap-2 right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
           >
+            <span className="text-sm text-gray-100"></span>Press 'f4'
             <CiBarcode size={20} />
           </button>
           </div>
@@ -482,9 +487,12 @@ useEffect(() => {
           <button
             onClick={() => setShowQuickItemModal(true)}
             title="Quick Add Item (F2)"  // ✅ hover tooltip
-            className="absolute right-6 bottom-6 rounded-full bg-blue-700 p-2 text-2xl hover:bg-blue-600"
+            className="absolute right-6 bottom-6"
           >
+          <div className="h-20 w-20 text-center flex flex-col items-center justify-center rounded-full bg-blue-700 p-2 text-2xl hover:bg-blue-600">
             <MdElectricBolt />
+            <span className="text-sm text-gray-100">Press 'F2'</span>
+          </div>
           </button>
         </div>
 
@@ -498,12 +506,14 @@ useEffect(() => {
         <div className="w-110 text-white">
           <div className="flex justify-between gap-2">
             <h2 className="text-lg font-semibold text-yellow-400 mb-4">🧾 Customer Details</h2>
+            <div>
             <button
-              className="rounded p-2 py-1 bg-blue-400"
+              className="rounded px-2 py-1 text-sm bg-blue-600"
               onClick={() => setShowCustomersModal(true)}
             >
               + New Customer
             </button>
+            </div>
           </div>
 
           <div className="gap-4 h-[48vh] relative">
@@ -514,7 +524,7 @@ useEffect(() => {
                   value={customerName}
                   onChange={(e) => { setCustomerName(e.target.value); setShowCustomerList(true); }}
                   onFocus={() => setShowCustomerList(true)}
-                  placeholder="Enter customer name"
+                  placeholder="Enter customer name (Press 'F5')"
                   className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2 w-full"
                 />
                 {showCustomerList && customerName && (
@@ -578,8 +588,8 @@ useEffect(() => {
                     type="number"
                     value={paidAmount || ""}
                     onChange={(e) => handlePaymentCalculation(e.target.value)}
-                    placeholder="Enter Paid Amount"
-                    className="bg-gray-800 w-50 border border-gray-700 text-white rounded-lg px-3 py-2"
+                    placeholder="Enter Paid Amount (Press F6)"
+                    className="bg-gray-800 w-65 border border-gray-700 text-white rounded-lg px-3 py-2"
                   />
                 </div>
               )}
@@ -605,8 +615,8 @@ useEffect(() => {
           </div>
         </div>
 
-        <div className="h-[40vh] w-full text-2xl grid grid-cols-2 gap-3 md:p-6 bg-gray-700 absolute bottom-0">
-          <button
+        <div className="h-[20vh] w-full text-2xl grid grid-cols-2 gap-3 md:p-6 bg-gray-700 absolute bottom-0">
+          {/* <button
             disabled
             className="bg-yellow-500 hover:bg-yellow-600 p-3 rounded-lg font-semibold shadow"
           >
@@ -617,19 +627,22 @@ useEffect(() => {
             className="bg-green-500 hover:bg-yellow-600 p-3 rounded-lg font-semibold shadow"
           >
             Save for Later
-          </button>
+          </button> */}
           <button
             onClick={() => { setCart([]); localStorage.removeItem("posCart"); }}
-            className="bg-red-600 hover:bg-red-700 p-3 rounded-lg font-semibold shadow"
+            className="flex flex-col  bg-red-600 hover:bg-red-700 p-3 rounded-lg font-semibold shadow"
           >
             Clear Bill
+            <span className="text-sm text-gray-100">(Press 'DEL')</span>
           </button>
           <button
             type="button"
             onClick={completePayment}
-            className="bg-blue-600 hover:bg-blue-700 p-3 rounded-lg font-semibold shadow"
+            className="flex flex-col bg-blue-600 hover:bg-blue-700 p-3 rounded-lg font-semibold shadow"
           >
             Complete Bill
+            <span className="text-sm text-gray-100">(Press 'S')</span>
+
           </button>
         </div>
       </div>
@@ -695,16 +708,16 @@ useEffect(() => {
             />
             <div className="flex justify-end gap-3">
               <button
-                onClick={() => setShowQuickItemModal(false)}
-                className="bg-gray-500 text-white px-4 py-2 rounded"
-              >
-                Cancel
-              </button>
-              <button
                 onClick={addQuickItemToCart}
                 className="bg-blue-600 text-white px-4 py-2 rounded"
               >
                 Add to Cart
+              </button>
+              <button
+                onClick={() => setShowQuickItemModal(false)}
+                className="bg-gray-500 text-white px-4 py-2 rounded"
+              >
+                Cancel
               </button>
             </div>
           </div>
