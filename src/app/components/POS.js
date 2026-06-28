@@ -51,7 +51,6 @@ export default function POS() {
           null, videoRef.current,
           (result) => {
             if (result) {
-              playBeep(); // ✅ beep on scan
               const scannedCode = result.getText();
               const matched = products.find(
                 (p) => p.barcode === scannedCode || p.slug === scannedCode
