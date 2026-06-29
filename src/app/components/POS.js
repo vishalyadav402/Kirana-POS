@@ -10,6 +10,7 @@ import Customers from "./Customers";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import { CiBarcode } from "react-icons/ci";
 import { MdClose } from "react-icons/md";
+import { supabase } from "../utils/supabase";
 
 export default function POS() {
   const [products, setProducts] = useState([]);
@@ -52,16 +53,44 @@ export default function POS() {
           (result) => {
             if (result) {
               const scannedCode = result.getText();
-              const matched = products.find(
-                (p) => p.barcode === scannedCode || p.slug === scannedCode
-              );
-              if (matched) {
-                const defaultVariant = matched.variants?.[0];
-                const price = Number(defaultVariant?.price || 0);
-                const label = defaultVariant?.label || "Default";
-                setCart((prev) => [...prev, { ...matched, selectedVariant: label, price, qty: 1, total: price }]);
-                toast.success(`✅ ${matched.name} added`);
-              } else {
+              let matched = null;
+let matchedVariant = null;
+
+for (const p of products) {
+  const found = p.variants?.find((v) => v.barcode === scannedCode);
+  if (found) {
+    matched = p;
+    matchedVariant = found;
+    break;
+  }
+}
+
+// fallback: match by slug if no variant barcode matched
+if (!matched) {
+  matched = products.find((p) => p.slug === scannedCode);
+  matchedVariant = matched?.variants?.[0] || null;
+}
+
+if (matched && matchedVariant) {
+  const price = Number(matchedVariant.price || 0);
+  const label = matchedVariant.label || "Default";
+  setCart((prev) => {
+    const existingIndex = prev.findIndex(
+      (item) => item.id === matched.id && item.selectedVariant === label
+    );
+    if (existingIndex !== -1) {
+      const updated = [...prev];
+      updated[existingIndex] = {
+        ...updated[existingIndex],
+        qty: updated[existingIndex].qty + 1,
+        total: (updated[existingIndex].qty + 1) * price,
+      };
+      return updated;
+    }
+    return [...prev, { ...matched, selectedVariant: label, price, qty: 1, total: price }];
+  });
+  toast.success(`✅ ${matched.name} (${label}) added`);
+} else {
                 setSearch(scannedCode);
                 toast.warning("Product not found — showing search results");
               }
@@ -88,7 +117,12 @@ export default function POS() {
     (p.variants || []).map((variant) => ({ p, variant }))
   );
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => {
+  const timer = setTimeout(() => {
+    inputRef.current?.focus();
+  }, 100);
+  return () => clearTimeout(timer);
+}, []);
   useEffect(() => { if (showQuickItemModal) setTimeout(() => quickItemRef.current?.focus(), 100); }, [showQuickItemModal]);
   useEffect(() => { setHighlightedIndex(0); }, [search]);
   useEffect(() => {
@@ -190,24 +224,65 @@ export default function POS() {
     doc.text("Visit Again !", 40, y, { align: "center" });
     doc.save("KiranaNeeds_Bill.pdf");
   };
+// Replace your existing completePayment with this in POS.jsx
 
-  const completePayment = useCallback(async () => {
-    if (cart.length === 0) { toast.error("Cart is empty!"); return; }
-    const total = getTotal();
-    if (paymentMode === "udhar") setUdharAmount(total);
-    if ((paymentMode === "cash" || paymentMode === "upi") && (paidAmount === "" || paidAmount < total)) {
-      toast.error("Customer has not paid full amount!"); return;
-    }
-    if (paymentMode === "split" && (paidAmount === "" || paidAmount <= 0)) {
-      toast.warning("Enter paid amount for split payment"); return;
-    }
-    saveBill({ id: Date.now(), date: new Date().toISOString(), customerName: customerName || "Walk-in", paymentMode, items: cart, total, paidAmount: paymentMode === "udhar" ? 0 : paidAmount, changeAmount, udharAmount: paymentMode === "udhar" ? total : udharAmount });
-    await generateInvoice();
-    setCart([]); localStorage.removeItem("posCart");
-    setCustomerName(""); setPaidAmount(""); setChangeAmount(0); setUdharAmount(0); setPaymentMode("cash");
-    toast.success("Bill Completed & Downloaded ✅");
-  }, [cart, paymentMode, paidAmount, changeAmount, udharAmount, customerName]);
+const completePayment = useCallback(async () => {
+  if (cart.length === 0) { toast.error("Cart is empty!"); return; }
+  const total = getTotal();
 
+  if (paymentMode === "udhar") setUdharAmount(total);
+  if ((paymentMode === "cash" || paymentMode === "upi") && (paidAmount === "" || paidAmount < total)) {
+    toast.error("Customer has not paid full amount!"); return;
+  }
+  if (paymentMode === "split" && (paidAmount === "" || paidAmount <= 0)) {
+    toast.warning("Enter paid amount for split payment"); return;
+  }
+
+  const orderId = `POS-${Date.now().toString().slice(-8)}`;
+  const billStatus = paymentMode === "udhar" ? "udhar" : paymentMode === "split" ? "split" : "completed";
+
+  // ✅ Save to Supabase orders table
+  const { error } = await supabase.from("orders").insert([{
+    order_id: orderId,
+    name: customerName || "Walk-in",
+    phone: customerMobile || "",
+    address: "POS", // ✅ tag to distinguish from KiranaNeeds delivery orders
+    items: cart,
+    total: total,
+    status: billStatus,
+  }]);
+
+  if (error) {
+    console.error("Supabase save error:", error);
+    toast.error("Failed to save bill to history");
+    // still continue with local save + invoice
+  }
+
+  // ✅ Also keep local save as backup
+  saveBill({
+    id: Date.now(),
+    date: new Date().toISOString(),
+    customerName: customerName || "Walk-in",
+    paymentMode,
+    items: cart,
+    total,
+    paidAmount: paymentMode === "udhar" ? 0 : paidAmount,
+    changeAmount,
+    udharAmount: paymentMode === "udhar" ? total : udharAmount,
+  });
+
+  await generateInvoice();
+
+  setCart([]);
+  localStorage.removeItem("posCart");
+  setCustomerName("");
+  setCustomerMobile("");
+  setPaidAmount("");
+  setChangeAmount(0);
+  setUdharAmount(0);
+  setPaymentMode("cash");
+  toast.success("Bill saved & downloaded ✅");
+}, [cart, paymentMode, paidAmount, changeAmount, udharAmount, customerName, customerMobile]);
 
   const playBeep = () => {
   try {
@@ -241,23 +316,30 @@ export default function POS() {
     }
   };
 
-  useEffect(() => {
-    const handleShortcut = (e) => {
-      const isTyping = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
-      if (e.key === "F2") { e.preventDefault(); setShowQuickItemModal(true); }
-      if (e.key === "F3") { e.preventDefault(); inputRef.current?.focus(); }
-      if (e.key === "F4") { e.preventDefault(); setShowScanner(true); }
-      if (e.key === "F5") { e.preventDefault(); setShowCustomersModal(true); }
-      if (e.key === "F6") { e.preventDefault(); customerInputRef.current?.focus(); }
-      if (e.key === "F7") { e.preventDefault(); paidAmountInputRef.current?.focus(); }
-      if (e.key === "F8") { e.preventDefault(); completePayment(); }
-      if (e.key === "Delete" && !isTyping) { setCart([]); localStorage.removeItem("posCart"); toast.info("Bill cleared"); }
-      if (e.key === "s" && !isTyping) completePayment();
-      if (e.key === "Escape") { setShowQuickItemModal(false); setShowScanner(false); setShowAddCustomerModal(false); setShowCustomersModal(false); }
-    };
-    window.addEventListener("keydown", handleShortcut);
-    return () => window.removeEventListener("keydown", handleShortcut);
-  }, [completePayment]);
+ useEffect(() => {
+  const handleShortcut = (e) => {
+    const isTyping = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
+
+    if (e.key === "F2") { e.preventDefault(); setShowQuickItemModal(true); }
+    if (e.key === "F3") { e.preventDefault(); setActiveTab("cart"); setTimeout(() => inputRef.current?.focus(), 50); }
+    if (e.key === "F4") { e.preventDefault(); setShowScanner(true); }
+    if (e.key === "F5") { e.preventDefault(); setShowCustomersModal(true); }
+    if (e.key === "F6") { e.preventDefault(); setActiveTab("payment"); setTimeout(() => customerInputRef.current?.focus(), 50); }
+    if (e.key === "F7") { e.preventDefault(); setActiveTab("payment"); setTimeout(() => paidAmountInputRef.current?.focus(), 50); }
+    if (e.key === "F8") { e.preventDefault(); completePayment(); }
+    if (e.key === "Delete" && !isTyping) { e.preventDefault(); setCart([]); localStorage.removeItem("posCart"); toast.info("Bill cleared"); }
+    if (e.key === "s" && !isTyping) completePayment();
+    if (e.key === "Escape") {
+      setShowQuickItemModal(false);
+      setShowScanner(false);
+      setShowAddCustomerModal(false);
+      setShowCustomersModal(false);
+    }
+  };
+
+  window.addEventListener("keydown", handleShortcut);
+  return () => window.removeEventListener("keydown", handleShortcut);
+}, [completePayment]);
 
   // ─── SHARED SECTIONS ────────────────────────────────────
 
@@ -266,6 +348,7 @@ export default function POS() {
       <div className="relative w-full text-gray-200">
         <input
           ref={inputRef}
+          autoFocus
           type="text"
           placeholder="Search item... (F3)"
           value={search}
@@ -326,7 +409,7 @@ export default function POS() {
               <td className="p-2">₹{item.price}</td>
               <td className="p-2">₹{item.total}</td>
               <td className="p-2">
-                <button onClick={() => removeFromCart(originalIndex)} className="text-red-400 text-xs">✕</button>
+                <button onClick={() => removeFromCart(originalIndex)} className="text-red-400 text-lg">✕</button>
               </td>
             </tr>
           ))}
@@ -413,6 +496,10 @@ export default function POS() {
           className="bg-blue-600 hover:bg-blue-700 p-3 rounded-lg font-semibold text-sm">
           ✅ Complete (F8)
         </button>
+       <button onClick={() => window.open('/billing-history', '_blank')}
+  className="bg-green-600 hover:bg-green-700 p-3 rounded-lg font-semibold text-sm">
+  Bill History
+</button>
       </div>
     </div>
   );
