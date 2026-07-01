@@ -233,7 +233,9 @@ export default function POS() {
     doc.text("------------------------------------------", 0, y); y += 6;
     doc.text("Thank you for shopping!", 40, y, { align: "center" }); y += 5;
     doc.text("Visit Again !", 40, y, { align: "center" });
-    doc.save("KiranaNeeds_Bill.pdf");
+// -------------
+    doc.save(`${customerName ||"Guest"}.pdf`);
+
   };
 
   const finalizePayment = useCallback(async (finalDiscount = 0) => {
@@ -556,16 +558,11 @@ export default function POS() {
           Bill History
         </button>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1">
         <button
           onClick={completePayment}
           className="bg-blue-600 hover:bg-blue-700 p-3 rounded-lg font-semibold text-lg md:text-xl">
-          ✅ Complete
-        </button>
-        <button
-          onClick={completePayment}
-          className="bg-blue-600 hover:bg-blue-700 p-3 rounded-lg font-semibold text-lg md:text-xl">
-          🖨 Print (F8)
+          🖨 Complete & Print (F8)
         </button>
       </div>
     </div>
@@ -667,8 +664,8 @@ export default function POS() {
             <input ref={quickItemRef} placeholder="Item Name" value={quickItem.name} onChange={(e) => setQuickItem({ ...quickItem, name: e.target.value })} className="border p-2 rounded w-full mb-3" />
             <input type="number" placeholder="Price" value={quickItem.price} onChange={(e) => setQuickItem({ ...quickItem, price: e.target.value })} className="border p-2 rounded w-full mb-4" />
             <div className="flex justify-end gap-3">
-              <button onClick={() => setShowQuickItemModal(false)} className="bg-gray-500 text-white px-4 py-2 rounded">Cancel</button>
               <button onClick={addQuickItemToCart} className="bg-blue-600 text-white px-4 py-2 rounded">Add to Cart</button>
+              <button onClick={() => setShowQuickItemModal(false)} className="bg-gray-500 text-white px-4 py-2 rounded">Cancel</button>
             </div>
           </div>
         </div>
