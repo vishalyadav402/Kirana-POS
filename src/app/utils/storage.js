@@ -1,7 +1,5 @@
 "use client";
 
-import { syncSingleItem } from "./googleSheet";
-
 /* =========================
    PRODUCTS STORAGE
 ========================= */
@@ -53,11 +51,18 @@ export const getCustomers = async () => {
   return db.getAll("customers");
 };
 
+// utils/storage.js
+
 export const addCustomer = async (data) => {
   const db = await getDB();
   const record = { ...data, id: generateId(), created_at: new Date().toISOString() };
   await db.put("customers", record);
   await enqueue("insert", "customers", record);
+
+  // ✅ also write directly to Supabase so orders can reference it immediately
+  const { error } = await supabase.from("customers").insert([record]);
+  if (error) console.error("Supabase customer sync error:", error);
+
   return record;
 };
 
@@ -108,6 +113,5 @@ export const saveCategory = (category) => {
     localStorage.setItem(CATEGORY_KEY, JSON.stringify(updated));
 
     // ✅ Sync only new category
-    syncSingleItem("Categories", newCategory);
   }
 };

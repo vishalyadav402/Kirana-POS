@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "KiranaNeeds POS",
+  title: "POS Billing",
   description: "Fast billing, inventory, and customer management for retail stores.",
 };
 

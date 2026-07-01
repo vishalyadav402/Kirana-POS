@@ -11,6 +11,7 @@ import { BrowserMultiFormatReader } from "@zxing/browser";
 import { CiBarcode } from "react-icons/ci";
 import { MdClose } from "react-icons/md";
 import { supabase } from "../utils/supabase";
+import Image from "next/image";
 
 export default function POS() {
   const [products, setProducts] = useState([]);
@@ -19,6 +20,7 @@ export default function POS() {
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [customerName, setCustomerName] = useState("");
   const [customerMobile, setCustomerMobile] = useState("");
+  const [customerId, setCustomerId] = useState(null); // ✅ track selected customer uuid
   const [paymentMode, setPaymentMode] = useState("cash");
   const [paidAmount, setPaidAmount] = useState("");
   const [changeAmount, setChangeAmount] = useState(0);
@@ -29,9 +31,13 @@ export default function POS() {
   const [showQuickItemModal, setShowQuickItemModal] = useState(false);
   const [quickItem, setQuickItem] = useState({ name: "", price: "" });
   const [showCustomersModal, setShowCustomersModal] = useState(false);
-  const [activeTab, setActiveTab] = useState("cart"); // ✅ mobile tab
+  const [activeTab, setActiveTab] = useState("cart");
   const [highlightedCustomerIndex, setHighlightedCustomerIndex] = useState(0);
   const [showScanner, setShowScanner] = useState(false);
+  const [discountAmount, setDiscountAmount] = useState(0);
+  const [showDiscountConfirm, setShowDiscountConfirm] = useState(false);
+  const [pendingDiscount, setPendingDiscount] = useState(0);
+  const [pendingPaidAmount, setPendingPaidAmount] = useState(0);
 
   const inputRef = useRef(null);
   const customerInputRef = useRef(null);
@@ -40,6 +46,8 @@ export default function POS() {
   const videoRef = useRef(null);
   const controlsRef = useRef(null);
   const router = useRouter();
+
+  // ─── EFFECTS ────────────────────────────────────────────
 
   useEffect(() => setHighlightedCustomerIndex(0), [customerName]);
 
@@ -54,43 +62,38 @@ export default function POS() {
             if (result) {
               const scannedCode = result.getText();
               let matched = null;
-let matchedVariant = null;
+              let matchedVariant = null;
 
-for (const p of products) {
-  const found = p.variants?.find((v) => v.barcode === scannedCode);
-  if (found) {
-    matched = p;
-    matchedVariant = found;
-    break;
-  }
-}
+              for (const p of products) {
+                const found = p.variants?.find((v) => v.barcode === scannedCode);
+                if (found) { matched = p; matchedVariant = found; break; }
+              }
 
-// fallback: match by slug if no variant barcode matched
-if (!matched) {
-  matched = products.find((p) => p.slug === scannedCode);
-  matchedVariant = matched?.variants?.[0] || null;
-}
+              if (!matched) {
+                matched = products.find((p) => p.slug === scannedCode);
+                matchedVariant = matched?.variants?.[0] || null;
+              }
 
-if (matched && matchedVariant) {
-  const price = Number(matchedVariant.price || 0);
-  const label = matchedVariant.label || "Default";
-  setCart((prev) => {
-    const existingIndex = prev.findIndex(
-      (item) => item.id === matched.id && item.selectedVariant === label
-    );
-    if (existingIndex !== -1) {
-      const updated = [...prev];
-      updated[existingIndex] = {
-        ...updated[existingIndex],
-        qty: updated[existingIndex].qty + 1,
-        total: (updated[existingIndex].qty + 1) * price,
-      };
-      return updated;
-    }
-    return [...prev, { ...matched, selectedVariant: label, price, qty: 1, total: price }];
-  });
-  toast.success(`✅ ${matched.name} (${label}) added`);
-} else {
+              if (matched && matchedVariant) {
+                const price = Number(matchedVariant.price || 0);
+                const label = matchedVariant.label || "Default";
+                setCart((prev) => {
+                  const existingIndex = prev.findIndex(
+                    (item) => item.id === matched.id && item.selectedVariant === label
+                  );
+                  if (existingIndex !== -1) {
+                    const updated = [...prev];
+                    updated[existingIndex] = {
+                      ...updated[existingIndex],
+                      qty: updated[existingIndex].qty + 1,
+                      total: (updated[existingIndex].qty + 1) * price,
+                    };
+                    return updated;
+                  }
+                  return [...prev, { ...matched, selectedVariant: label, price, qty: 1, total: price }];
+                });
+                toast.success(`✅ ${matched.name} (${label}) added`);
+              } else {
                 setSearch(scannedCode);
                 toast.warning("Product not found — showing search results");
               }
@@ -107,6 +110,33 @@ if (matched && matchedVariant) {
     return () => { controlsRef.current?.stop(); controlsRef.current = null; };
   }, [showScanner, products]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => { inputRef.current?.focus(); }, 100);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => { if (showQuickItemModal) setTimeout(() => quickItemRef.current?.focus(), 100); }, [showQuickItemModal]);
+  useEffect(() => { setHighlightedIndex(0); }, [search]);
+
+  useEffect(() => {
+    const loadCustomers = async () => { const data = await getCustomers(); setCustomers(data || []); };
+    loadCustomers();
+  }, []);
+
+  useEffect(() => {
+    const loadProducts = async () => { const data = await getProducts(); setProducts(data || []); };
+    loadProducts();
+  }, []);
+
+  useEffect(() => {
+    const savedCart = localStorage.getItem("posCart");
+    if (savedCart) setCart(JSON.parse(savedCart));
+  }, []);
+
+  useEffect(() => { localStorage.setItem("posCart", JSON.stringify(cart)); }, [cart]);
+
+  // ─── DERIVED ────────────────────────────────────────────
+
   const filteredCustomers = customers.filter((c) =>
     c.name?.toLowerCase().includes(customerName.toLowerCase())
   );
@@ -117,34 +147,7 @@ if (matched && matchedVariant) {
     (p.variants || []).map((variant) => ({ p, variant }))
   );
 
-  useEffect(() => {
-  const timer = setTimeout(() => {
-    inputRef.current?.focus();
-  }, 100);
-  return () => clearTimeout(timer);
-}, []);
-  useEffect(() => { if (showQuickItemModal) setTimeout(() => quickItemRef.current?.focus(), 100); }, [showQuickItemModal]);
-  useEffect(() => { setHighlightedIndex(0); }, [search]);
-  useEffect(() => {
-    const loadCustomers = async () => { const data = await getCustomers(); setCustomers(data || []); };
-    loadCustomers();
-  }, []);
-  useEffect(() => {
-    const loadProducts = async () => { const data = await getProducts(); setProducts(data || []); };
-    loadProducts();
-  }, []);
-  useEffect(() => {
-    const savedCart = localStorage.getItem("posCart");
-    if (savedCart) setCart(JSON.parse(savedCart));
-  }, []);
-  useEffect(() => { localStorage.setItem("posCart", JSON.stringify(cart)); }, [cart]);
-
-  const addToCart = (product) => {
-    const defaultVariant = product.variants?.[0];
-    const price = Number(defaultVariant?.price || 0);
-    const label = defaultVariant?.label || "Default";
-    setCart((prev) => [...prev, { ...product, selectedVariant: label, price, qty: 1, total: price }]);
-  };
+  // ─── CART ───────────────────────────────────────────────
 
   const updateQty = (index, qty) => {
     const updatedCart = [...cart];
@@ -167,16 +170,24 @@ if (matched && matchedVariant) {
     setTimeout(() => inputRef.current?.focus(), 100);
   };
 
+  // ─── CUSTOMERS ──────────────────────────────────────────
+
   const saveNewCustomer = async () => {
     if (!customerName.trim()) { toast.error("Enter customer name"); return; }
-    await addCustomer({ name: customerName.trim(), mobile: customerMobile ? customerMobile.trim() : "" });
+    const newName = customerName.trim();
+    const newMobile = customerMobile ? customerMobile.trim() : "";
+    const record = await addCustomer({ name: newName, mobile: newMobile });
     const updated = await getCustomers();
     setCustomers(updated || []);
-    setCustomerName("");
-    setCustomerMobile("");
+    setCustomerName(newName);
+    setCustomerMobile(newMobile);
+    setCustomerId(record.id); // ✅ set uuid from returned record
     setShowAddCustomerModal(false);
+    setShowCustomerList(false);
     toast.success("Customer added ✅");
   };
+
+  // ─── PAYMENT ────────────────────────────────────────────
 
   const handlePaymentCalculation = (value) => {
     const total = getTotal();
@@ -224,86 +235,103 @@ if (matched && matchedVariant) {
     doc.text("Visit Again !", 40, y, { align: "center" });
     doc.save("KiranaNeeds_Bill.pdf");
   };
-// Replace your existing completePayment with this in POS.jsx
 
-const completePayment = useCallback(async () => {
-  if (cart.length === 0) { toast.error("Cart is empty!"); return; }
-  const total = getTotal();
+  const finalizePayment = useCallback(async (finalDiscount = 0) => {
+    const total = getTotal();
+    const orderId = `POS-${Date.now().toString().slice(-8)}`;
+    const billStatus = paymentMode === "udhar" ? "udhar" : paymentMode === "split" ? "split" : "completed";
 
-  if (paymentMode === "udhar") setUdharAmount(total);
-  if ((paymentMode === "cash" || paymentMode === "upi") && (paidAmount === "" || paidAmount < total)) {
-    toast.error("Customer has not paid full amount!"); return;
-  }
-  if (paymentMode === "split" && (paidAmount === "" || paidAmount <= 0)) {
-    toast.warning("Enter paid amount for split payment"); return;
-  }
+    const { error } = await supabase.from("orders").insert([{
+      order_id: orderId,
+      customer_id: customerId || null, // ✅ link to customer uuid
+      name: customerName || "Walk-in",
+      phone: customerMobile || "",
+      address: "POS",
+      items: cart,
+      total: total,
+      discount: finalDiscount,
+      status: billStatus,
+    }]);
 
-  const orderId = `POS-${Date.now().toString().slice(-8)}`;
-  const billStatus = paymentMode === "udhar" ? "udhar" : paymentMode === "split" ? "split" : "completed";
+    if (error) {
+      console.error("Supabase save error:", error);
+      toast.error("Failed to save bill to history");
+    }
 
-  // ✅ Save to Supabase orders table
-  const { error } = await supabase.from("orders").insert([{
-    order_id: orderId,
-    name: customerName || "Walk-in",
-    phone: customerMobile || "",
-    address: "POS", // ✅ tag to distinguish from KiranaNeeds delivery orders
-    items: cart,
-    total: total,
-    status: billStatus,
-  }]);
+    saveBill({
+      id: Date.now(),
+      date: new Date().toISOString(),
+      customerName: customerName || "Walk-in",
+      paymentMode,
+      items: cart,
+      total,
+      discount: finalDiscount,
+      paidAmount: paymentMode === "udhar" ? 0 : paidAmount,
+      changeAmount,
+      udharAmount: paymentMode === "udhar" ? total : udharAmount,
+    });
 
-  if (error) {
-    console.error("Supabase save error:", error);
-    toast.error("Failed to save bill to history");
-    // still continue with local save + invoice
-  }
+    await generateInvoice();
 
-  // ✅ Also keep local save as backup
-  saveBill({
-    id: Date.now(),
-    date: new Date().toISOString(),
-    customerName: customerName || "Walk-in",
-    paymentMode,
-    items: cart,
-    total,
-    paidAmount: paymentMode === "udhar" ? 0 : paidAmount,
-    changeAmount,
-    udharAmount: paymentMode === "udhar" ? total : udharAmount,
-  });
+    // ✅ reset all state
+    setCart([]);
+    localStorage.removeItem("posCart");
+    setCustomerName("");
+    setCustomerMobile("");
+    setCustomerId(null);
+    setPaidAmount("");
+    setChangeAmount(0);
+    setUdharAmount(0);
+    setDiscountAmount(0);
+    setPaymentMode("cash");
+    toast.success(finalDiscount > 0 ? `Bill saved with ₹${finalDiscount} discount ✅` : "Bill saved & downloaded ✅");
+  }, [cart, paymentMode, paidAmount, changeAmount, udharAmount, customerName, customerMobile, customerId]);
 
-  await generateInvoice();
+  const completePayment = useCallback(async () => {
+    if (cart.length === 0) { toast.error("Cart is empty!"); return; }
+    const total = getTotal();
 
-  setCart([]);
-  localStorage.removeItem("posCart");
-  setCustomerName("");
-  setCustomerMobile("");
-  setPaidAmount("");
-  setChangeAmount(0);
-  setUdharAmount(0);
-  setPaymentMode("cash");
-  toast.success("Bill saved & downloaded ✅");
-}, [cart, paymentMode, paidAmount, changeAmount, udharAmount, customerName, customerMobile]);
+    if ((paymentMode === "udhar" || paymentMode === "split") && !customerName.trim()) {
+      toast.error("Customer name is required for Udhar/Split payments!");
+      return;
+    }
 
-  const playBeep = () => {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const oscillator = ctx.createOscillator();
-    const gainNode = ctx.createGain();
+    if (paymentMode === "udhar") {
+      setUdharAmount(total);
+      await finalizePayment(0);
+      return;
+    }
 
-    oscillator.connect(gainNode);
-    gainNode.connect(ctx.destination);
+    if (paymentMode === "cash" || paymentMode === "upi") {
+      if (paidAmount === "") { toast.error("Enter paid amount!"); return; }
+      if (paidAmount < total) {
+        const shortfall = total - Number(paidAmount);
+        setPendingDiscount(shortfall);
+        setPendingPaidAmount(paidAmount);
+        setShowDiscountConfirm(true);
+        return;
+      }
+      await finalizePayment(0);
+      return;
+    }
 
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(1800, ctx.currentTime); // high beep
-    gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    if (paymentMode === "split") {
+      if (paidAmount === "" || paidAmount <= 0) { toast.warning("Enter paid amount for split payment"); return; }
+      await finalizePayment(0);
+    }
+  }, [cart, paymentMode, paidAmount, customerName, finalizePayment]);
 
-    oscillator.start(ctx.currentTime);
-    oscillator.stop(ctx.currentTime + 0.15);
-  } catch (e) {
-    console.warn("Beep failed:", e);
-  }
-};
+  const confirmDiscountAndPay = async () => {
+    setShowDiscountConfirm(false);
+    await finalizePayment(pendingDiscount);
+  };
+
+  const cancelDiscountConfirm = () => {
+    setShowDiscountConfirm(false);
+    toast.error("Customer has not paid full amount!");
+  };
+
+  // ─── KEYBOARD ───────────────────────────────────────────
 
   const handleKeyDown = (e) => {
     if (e.key === "ArrowDown") setHighlightedIndex((prev) => prev < flatSuggestions.length - 1 ? prev + 1 : prev);
@@ -316,30 +344,29 @@ const completePayment = useCallback(async () => {
     }
   };
 
- useEffect(() => {
-  const handleShortcut = (e) => {
-    const isTyping = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
-
-    if (e.key === "F2") { e.preventDefault(); setShowQuickItemModal(true); }
-    if (e.key === "F3") { e.preventDefault(); setActiveTab("cart"); setTimeout(() => inputRef.current?.focus(), 50); }
-    if (e.key === "F4") { e.preventDefault(); setShowScanner(true); }
-    if (e.key === "F5") { e.preventDefault(); setShowCustomersModal(true); }
-    if (e.key === "F6") { e.preventDefault(); setActiveTab("payment"); setTimeout(() => customerInputRef.current?.focus(), 50); }
-    if (e.key === "F7") { e.preventDefault(); setActiveTab("payment"); setTimeout(() => paidAmountInputRef.current?.focus(), 50); }
-    if (e.key === "F8") { e.preventDefault(); completePayment(); }
-    if (e.key === "Delete" && !isTyping) { e.preventDefault(); setCart([]); localStorage.removeItem("posCart"); toast.info("Bill cleared"); }
-    if (e.key === "s" && !isTyping) completePayment();
-    if (e.key === "Escape") {
-      setShowQuickItemModal(false);
-      setShowScanner(false);
-      setShowAddCustomerModal(false);
-      setShowCustomersModal(false);
-    }
-  };
-
-  window.addEventListener("keydown", handleShortcut);
-  return () => window.removeEventListener("keydown", handleShortcut);
-}, [completePayment]);
+  useEffect(() => {
+    const handleShortcut = (e) => {
+      const isTyping = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
+      if (e.key === "F2") { e.preventDefault(); setShowQuickItemModal(true); }
+      if (e.key === "F3") { e.preventDefault(); setActiveTab("cart"); setTimeout(() => inputRef.current?.focus(), 50); }
+      if (e.key === "F4") { e.preventDefault(); setShowScanner(true); }
+      if (e.key === "F5") { e.preventDefault(); setShowCustomersModal(true); }
+      if (e.key === "F6") { e.preventDefault(); setActiveTab("payment"); setTimeout(() => customerInputRef.current?.focus(), 50); }
+      if (e.key === "F7") { e.preventDefault(); setActiveTab("payment"); setTimeout(() => paidAmountInputRef.current?.focus(), 50); }
+      if (e.key === "F8") { e.preventDefault(); completePayment(); }
+      if (e.key === "Delete" && !isTyping) { e.preventDefault(); setCart([]); localStorage.removeItem("posCart"); toast.info("Bill cleared"); }
+      if (e.key === "s" && !isTyping) completePayment();
+      if (e.key === "Escape") {
+        setShowQuickItemModal(false);
+        setShowScanner(false);
+        setShowAddCustomerModal(false);
+        setShowCustomersModal(false);
+        setShowDiscountConfirm(false);
+      }
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [completePayment]);
 
   // ─── SHARED SECTIONS ────────────────────────────────────
 
@@ -362,14 +389,21 @@ const completePayment = useCallback(async () => {
         </button>
       </div>
       {search && flatSuggestions.length > 0 && (
-        <ul className="absolute z-10 bg-gray-700 border rounded w-full mt-1 max-h-48 overflow-y-auto shadow">
+        <ul className="absolute z-10 bg-gray-700 border rounded w-full mt-1 max-h-96 overflow-y-auto shadow">
           {flatSuggestions.map(({ p, variant }, i) => (
             <li key={i}
-              onClick={() => { const price = Number(variant.price || 0); setCart((prev) => [...prev, { ...p, selectedVariant: variant.label, price, qty: 1, total: price }]); setSearch(""); setHighlightedIndex(0); }}
+              onClick={() => {
+                const price = Number(variant.price || 0);
+                setCart((prev) => [...prev, { ...p, selectedVariant: variant.label, price, qty: 1, total: price }]);
+                setSearch(""); setHighlightedIndex(0);
+              }}
               className={`px-3 py-2 cursor-pointer flex justify-between items-center ${highlightedIndex === i ? "bg-cyan-600" : "hover:bg-gray-800"}`}>
+              <div className="flex gap-4">
+                <Image height={20} width={40} src={p.image|| "/"} alt="product image"></Image>
               <div className="flex flex-col">
                 <span className="text-sm text-white">{p.name}</span>
                 <span className="text-xs text-gray-300">{variant.label}</span>
+              </div>
               </div>
               <div className="flex flex-col items-end">
                 <span className="text-sm text-white">₹{variant.price}</span>
@@ -415,7 +449,6 @@ const completePayment = useCallback(async () => {
           ))}
         </tbody>
       </table>
-
       <button onClick={() => setShowQuickItemModal(true)} title="Quick Add (F2)"
         className="absolute right-3 bottom-3 h-14 w-14 flex flex-col items-center justify-center rounded-full bg-blue-700 hover:bg-blue-600 text-white">
         <MdElectricBolt size={20} />
@@ -428,8 +461,11 @@ const completePayment = useCallback(async () => {
     <div className="flex flex-col gap-3">
       {/* Customer */}
       <div className="relative">
-        <input type="text" ref={customerInputRef} value={customerName}
-          onChange={(e) => { setCustomerName(e.target.value); setShowCustomerList(true); setHighlightedCustomerIndex(0); }}
+        <input
+          type="text"
+          ref={customerInputRef}
+          value={customerName}
+          onChange={(e) => { setCustomerName(e.target.value); setCustomerId(null); setShowCustomerList(true); setHighlightedCustomerIndex(0); }}
           onFocus={() => setShowCustomerList(true)}
           onKeyDown={(e) => {
             if (e.key === "ArrowDown") setHighlightedCustomerIndex((prev) => prev < filteredCustomers.length - 1 ? prev + 1 : prev);
@@ -437,24 +473,40 @@ const completePayment = useCallback(async () => {
             if (e.key === "Enter") {
               if (filteredCustomers.length > 0) {
                 const c = filteredCustomers[highlightedCustomerIndex] || filteredCustomers[0];
-                setCustomerName(c.name); setCustomerMobile(c.mobile); setShowCustomerList(false); setHighlightedCustomerIndex(0);
-              } else if (customerName.trim()) { setShowAddCustomerModal(true); setShowCustomerList(false); }
+                setCustomerName(c.name);
+                setCustomerMobile(c.mobile);
+                setCustomerId(c.id); // ✅ set uuid on enter-select
+                setShowCustomerList(false);
+                setHighlightedCustomerIndex(0);
+              } else if (customerName.trim()) {
+                setShowAddCustomerModal(true);
+                setShowCustomerList(false);
+              }
             }
             if (e.key === "Escape") setShowCustomerList(false);
           }}
           placeholder="Customer name (F6)"
-          className="bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 w-full text-sm" />
+          className="bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 w-full text-sm"
+        />
         {showCustomerList && customerName && (
           <ul className="absolute z-50 bg-gray-700 border w-full mt-1 max-h-36 overflow-y-auto rounded shadow-lg">
             {filteredCustomers.map((c, i) => (
-              <li key={i} onClick={() => { setCustomerName(c.name); setCustomerMobile(c.mobile); setShowCustomerList(false); setHighlightedCustomerIndex(0); }}
+              <li key={i}
+                onClick={() => {
+                  setCustomerName(c.name);
+                  setCustomerMobile(c.mobile);
+                  setCustomerId(c.id); // ✅ set uuid on click-select
+                  setShowCustomerList(false);
+                  setHighlightedCustomerIndex(0);
+                }}
                 className={`px-3 py-2 cursor-pointer flex justify-between text-sm ${highlightedCustomerIndex === i ? "bg-cyan-600" : "hover:bg-gray-600"}`}>
                 <span>{c.name}</span>
                 <span className="text-gray-300 text-xs">{c.mobile}</span>
               </li>
             ))}
             {filteredCustomers.length === 0 && (
-              <li onClick={() => setShowAddCustomerModal(true)} className="px-3 py-2 cursor-pointer text-yellow-400 hover:bg-gray-600 text-sm">
+              <li onClick={() => { setShowAddCustomerModal(true); setShowCustomerList(false); }}
+                className="px-3 py-2 cursor-pointer text-yellow-400 hover:bg-gray-600 text-sm">
                 ➕ Add "{customerName}" as new customer
               </li>
             )}
@@ -468,7 +520,8 @@ const completePayment = useCallback(async () => {
       {/* Payment mode */}
       <div className="flex gap-2 flex-wrap">
         {["cash", "upi", "udhar", "split"].map((mode) => (
-          <button key={mode} onClick={() => { setPaymentMode(mode); setPaidAmount(""); setChangeAmount(0); setUdharAmount(0); }}
+          <button key={mode}
+            onClick={() => { setPaymentMode(mode); setPaidAmount(""); setChangeAmount(0); setUdharAmount(0); }}
             className={`px-3 py-1 rounded capitalize border text-sm flex-1 ${paymentMode === mode ? "bg-yellow-500 text-black" : "bg-gray-700 text-white border-gray-600"}`}>
             {mode}
           </button>
@@ -476,10 +529,14 @@ const completePayment = useCallback(async () => {
       </div>
 
       {paymentMode !== "udhar" && (
-        <input ref={paidAmountInputRef} type="number" value={paidAmount || ""}
+        <input
+          ref={paidAmountInputRef}
+          type="number"
+          value={paidAmount || ""}
           onChange={(e) => handlePaymentCalculation(e.target.value)}
           placeholder="Paid Amount (F7)"
-          className="bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 w-full text-sm" />
+          className="bg-gray-800 border border-gray-600 text-white rounded-lg px-3 py-2 w-full text-sm"
+        />
       )}
 
       {paymentMode === "udhar" && <div className="text-orange-400 text-sm text-right">Full Udhar: ₹{getTotal()}</div>}
@@ -488,44 +545,57 @@ const completePayment = useCallback(async () => {
 
       {/* Action buttons */}
       <div className="grid grid-cols-2 gap-3 mt-2">
-        <button onClick={() => { setCart([]); localStorage.removeItem("posCart"); toast.info("Bill cleared"); }}
-          className="bg-red-600 hover:bg-red-700 p-3 rounded-lg font-semibold text-sm">
+        <button
+          onClick={() => { setCart([]); localStorage.removeItem("posCart"); toast.info("Bill cleared"); }}
+          className="bg-red-600 hover:bg-red-700 p-3 rounded-lg font-semibold text-lg md:text-xl">
           🗑 Clear (DEL)
         </button>
-        <button onClick={completePayment}
-          className="bg-blue-600 hover:bg-blue-700 p-3 rounded-lg font-semibold text-sm">
-          ✅ Complete (F8)
+        <button
+          onClick={() => window.open('/billing-history', '_blank')}
+          className="bg-green-600 hover:bg-green-700 p-3 rounded-lg font-semibold text-lg md:text-xl">
+          Bill History
         </button>
-       <button onClick={() => window.open('/billing-history', '_blank')}
-  className="bg-green-600 hover:bg-green-700 p-3 rounded-lg font-semibold text-sm">
-  Bill History
-</button>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          onClick={completePayment}
+          className="bg-blue-600 hover:bg-blue-700 p-3 rounded-lg font-semibold text-lg md:text-xl">
+          ✅ Complete
+        </button>
+        <button
+          onClick={completePayment}
+          className="bg-blue-600 hover:bg-blue-700 p-3 rounded-lg font-semibold text-lg md:text-xl">
+          🖨 Print (F8)
+        </button>
       </div>
     </div>
   );
+
+  // ─── RENDER ─────────────────────────────────────────────
 
   return (
     <div className="h-screen flex flex-col bg-gray-900 text-white">
 
       {/* ─── HEADER ─── */}
       <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700">
-        <span className="font-semibold text-sm">KiranaNeeds POS</span>
+        <span className="font-semibold text-lg">KiranaNeeds POS</span>
         <div className="flex items-center gap-2">
           {cart.length > 0 && (
-            <span className="bg-cyan-600 text-white text-xs px-2 py-0.5 rounded-full">
+            <span className="bg-cyan-600 text-white text-md px-2 py-0.5 rounded-full">
               {cart.length} items · ₹{getTotal()}
             </span>
           )}
           <button onClick={() => window.open("https://www.kirananeeds.com/admin/products", "_blank")}
-            className="text-xs bg-blue-600 px-2 py-1 rounded">+ Item</button>
+            className="text-md bg-blue-600 px-2 py-1 rounded">+ Item</button>
           <button onClick={() => setShowCustomersModal(true)}
-            className="text-xs bg-blue-600 px-2 py-1 rounded">+ Customer (F5)</button>
+            className="text-md bg-blue-600 px-2 py-1 rounded">+ Customer (F5)</button>
+          <button onClick={() => window.open("/customer-ledger", "_blank")}
+            className="text-md bg-purple-600 px-2 py-1 rounded">Ledger</button>
         </div>
       </div>
 
       {/* ─── DESKTOP: two-panel ─── */}
       <div className="hidden md:flex flex-1 overflow-hidden">
-        {/* Left */}
         <div className="flex-1 flex flex-col p-4 border-r border-gray-700 overflow-hidden">
           {SearchSection}
           {CartSection}
@@ -533,7 +603,6 @@ const completePayment = useCallback(async () => {
             <span className="text-lg font-semibold">Total: ₹{getTotal()}.00</span>
           </div>
         </div>
-        {/* Right */}
         <div className="w-96 flex flex-col p-4 bg-gray-800 overflow-y-auto">
           <h2 className="text-yellow-400 font-semibold mb-3">🧾 Customer & Payment</h2>
           {PaymentSection}
@@ -542,8 +611,6 @@ const completePayment = useCallback(async () => {
 
       {/* ─── MOBILE: tab layout ─── */}
       <div className="flex md:hidden flex-1 flex-col overflow-hidden">
-
-        {/* Tab bar */}
         <div className="flex border-b border-gray-700">
           <button onClick={() => setActiveTab("cart")}
             className={`flex-1 py-2 text-sm font-medium ${activeTab === "cart" ? "border-b-2 border-cyan-400 text-cyan-400" : "text-gray-400"}`}>
@@ -555,22 +622,19 @@ const completePayment = useCallback(async () => {
           </button>
         </div>
 
-        {/* Cart tab */}
         {activeTab === "cart" && (
           <div className="flex flex-col flex-1 p-3 overflow-hidden">
             {SearchSection}
             {CartSection}
             <div className="flex justify-between items-center mt-2">
               <span className="text-sm font-semibold">Total: ₹{getTotal()}.00</span>
-              <button onClick={() => setActiveTab("payment")}
-                className="bg-blue-600 text-sm px-4 py-1.5 rounded-lg">
+              <button onClick={() => setActiveTab("payment")} className="bg-blue-600 text-sm px-4 py-1.5 rounded-lg">
                 Pay →
               </button>
             </div>
           </div>
         )}
 
-        {/* Payment tab */}
         {activeTab === "payment" && (
           <div className="flex-1 overflow-y-auto p-3">
             {PaymentSection}
@@ -578,7 +642,8 @@ const completePayment = useCallback(async () => {
         )}
       </div>
 
-      {/* ─── MODALS ─── */}
+      {/* ─── MODALS ─────────────────────────────────────── */}
+
       {showAddCustomerModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-white text-black p-6 rounded-xl w-[350px]">
@@ -620,6 +685,30 @@ const completePayment = useCallback(async () => {
           </div>
         </div>
       )}
+
+      {showDiscountConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-gray-900 text-white p-6 rounded-xl w-[360px] border border-gray-700 shadow-xl">
+            <h2 className="text-lg font-semibold mb-2 text-yellow-400">⚠ Short Payment</h2>
+            <p className="text-sm text-gray-300 mb-1">
+              Customer paid <span className="font-semibold text-white">₹{pendingPaidAmount}</span>, short by{" "}
+              <span className="font-semibold text-red-400">₹{pendingDiscount}</span>.
+            </p>
+            <p className="text-sm text-gray-300 mb-5">
+              Apply ₹{pendingDiscount} as a discount and complete this bill?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={cancelDiscountConfirm} className="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm">
+                Cancel
+              </button>
+              <button onClick={confirmDiscountAndPay} className="bg-yellow-500 hover:bg-yellow-400 text-black px-4 py-2 rounded-lg text-sm font-semibold">
+                Apply Discount & Pay
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
