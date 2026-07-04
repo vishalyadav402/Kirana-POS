@@ -12,6 +12,9 @@ import { CiBarcode } from "react-icons/ci";
 import { MdClose } from "react-icons/md";
 import { supabase } from "../utils/supabase";
 import Image from "next/image";
+import { saveOrder } from "../utils/storage";
+import SyncStatus from "./SyncStatus";
+import { syncAll } from "../utils/sync";
 
 export default function POS() {
   const [products, setProducts] = useState([]);
@@ -51,6 +54,102 @@ export default function POS() {
 
   useEffect(() => setHighlightedCustomerIndex(0), [customerName]);
 
+// 2d barcode scanner
+    useEffect(() => {
+      let barcode = "";
+      let timer;
+
+      const handleKeyDown = (e) => {
+        if (timer) clearTimeout(timer);
+
+        if (e.key === "Enter") {
+          if (!barcode) return;
+
+          const scannedCode = barcode;
+          barcode = "";
+
+          let matched = null;
+          let matchedVariant = null;
+
+          for (const p of products) {
+            const found = p.variants?.find(
+              (v) => v.barcode === scannedCode
+            );
+            if (found) {
+              matched = p;
+              matchedVariant = found;
+              break;
+            }
+          }
+
+          if (!matched) {
+            matched = products.find((p) => p.slug === scannedCode);
+            matchedVariant = matched?.variants?.[0] || null;
+          }
+
+          if (matched && matchedVariant) {
+            const price = Number(matchedVariant.price || 0);
+            const label = matchedVariant.label || "Default";
+
+            setCart((prev) => {
+              const index = prev.findIndex(
+                (item) =>
+                  item.id === matched.id &&
+                  item.selectedVariant === label
+              );
+
+              if (index !== -1) {
+                const updated = [...prev];
+                updated[index] = {
+                  ...updated[index],
+                  qty: updated[index].qty + 1,
+                  total: (updated[index].qty + 1) * price,
+                };
+                return updated;
+              }
+
+              return [
+                ...prev,
+                {
+                  ...matched,
+                  selectedVariant: label,
+                  price,
+                  qty: 1,
+                  total: price,
+                },
+              ];
+            });
+
+            setSearch("");          // Clear previous scanned value
+            setHighlightedIndex(0);
+            inputRef.current?.focus();
+            
+            // toast.success(`${matched.name} (${label}) added`);
+          } else {
+            setSearch(scannedCode);
+            toast.warning("Product not found");
+          }
+
+          return;
+        }
+
+        if (e.key.length === 1) {
+          barcode += e.key;
+        }
+
+        timer = setTimeout(() => {
+          barcode = "";
+        }, 100);
+      };
+
+      window.addEventListener("keydown", handleKeyDown);
+
+      return () => {
+        window.removeEventListener("keydown", handleKeyDown);
+      };
+    }, [products]);
+
+// barcode camera scanner
   useEffect(() => {
     if (!showScanner) return;
     const codeReader = new BrowserMultiFormatReader();
@@ -135,6 +234,11 @@ export default function POS() {
 
   useEffect(() => { localStorage.setItem("posCart", JSON.stringify(cart)); }, [cart]);
 
+
+  useEffect(() => {
+  syncAll();
+}, []);
+
   // ─── DERIVED ────────────────────────────────────────────
 
   const filteredCustomers = customers.filter((c) =>
@@ -198,97 +302,136 @@ export default function POS() {
     else { setChangeAmount(0); setUdharAmount(total - paid); }
   };
 
-  const generateInvoice = async () => {
-    const { default: jsPDF } = await import("jspdf");
-    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [80, 200] });
-    let y = 10;
-    doc.setFont("courier", "bold"); doc.setFontSize(13);
-    doc.text("KiranaNeeds Store", 40, y, { align: "center" }); y += 3;
-    doc.setFont("courier", "normal"); doc.setFontSize(8);
-    doc.text("Har Ghar Ka Bharosa", 40, y, { align: "center" }); y += 5;
-    doc.text("Prithviganj Bazaar, Patti Pratapgarh", 40, y, { align: "center" }); y += 5;
-    doc.text("Call/WhatsApp: 8601096821", 40, y, { align: "center" }); y += 6;
-    doc.setFontSize(9);
-    doc.text(`Bill No: INV-${Date.now().toString().slice(-6)}`, 5, y); y += 4;
-    doc.text(`Date: ${new Date().toLocaleString()}`, 5, y); y += 5;
-    if (customerName) { doc.text(`Customer: ${customerName}`, 5, y); y += 5; }
-    doc.text("------------------------------------------", 0, y); y += 5;
-    doc.setFont("courier", "bold");
-    doc.text("Item            Qty   Rate   Total", 2, y); y += 4;
-    doc.setFont("courier", "normal");
-    doc.text("------------------------------------------", 0, y); y += 5;
-    cart.forEach((item) => {
-      const name = item.name.length > 12 ? item.name.slice(0, 12) : item.name;
-      doc.text(`${name.padEnd(14)}${item.qty.toString().padStart(6, " ")}${Number(item.price).toFixed(2).padStart(9, " ")}${Number(item.total).toFixed(2).padStart(7, " ")}`, 2, y);
-      y += 5;
-    });
-    doc.text("------------------------------------------", 0, y); y += 5;
-    doc.setFont("courier", "bold");
-    doc.text(`Grand Total : ${getTotal()}`, 2, y); y += 5;
-    doc.setFont("courier", "normal");
-    doc.text(`Payment Mode : ${paymentMode.toUpperCase()}`, 2, y); y += 5;
-    doc.text(`Paid Amount  : ${paidAmount || 0}`, 2, y); y += 5;
-    doc.text(`Change       : ${changeAmount || 0}`, 2, y); y += 5;
-    doc.text(`Udhar        : ${udharAmount || 0}`, 2, y); y += 6;
-    doc.text("------------------------------------------", 0, y); y += 6;
-    doc.text("Thank you for shopping!", 40, y, { align: "center" }); y += 5;
-    doc.text("Visit Again !", 40, y, { align: "center" });
-// -------------
-    doc.save(`${customerName ||"Guest"}.pdf`);
 
-  };
+  const getProfit = () => {
+  const result = cart.reduce((sum, item) => {
+    const cp = Number(item.cp || 0);
+    const price = Number(item.price || 0);
+    const qty = Number(item.qty || 1);
+    console.log(`${item.name} | price: ${price} | cp: ${cp} | qty: ${qty} | item profit: ${(price - cp) * qty}`);
+    return sum + (price - cp) * qty;
+  }, 0);
+  console.log("Total profit:", result);
+  return result;
+};
+ 
+const getMargin = () => {
+  const total = getTotal();
+  const profit = getProfit();
+  if (total === 0) return 0;
+  return ((profit / total) * 100).toFixed(1);
+}
+
+ const generateInvoice = async (finalDiscount = 0) => {
+  const { default: jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [80, 200] });
+  let y = 10;
+ 
+  doc.setFont("courier", "bold"); doc.setFontSize(13);
+  doc.text("KiranaNeeds Store", 40, y, { align: "center" }); y += 3;
+  doc.setFont("courier", "normal"); doc.setFontSize(8);
+  doc.text("Har Ghar Ka Bharosa", 40, y, { align: "center" }); y += 5;
+  doc.text("Prithviganj Bazaar, Patti Pratapgarh", 40, y, { align: "center" }); y += 5;
+  doc.text("Call/WhatsApp: 8601096821", 40, y, { align: "center" }); y += 6;
+ 
+  doc.setFontSize(9);
+  doc.text(`Bill No: INV-${Date.now().toString().slice(-6)}`, 5, y); y += 4;
+  doc.text(`Date: ${new Date().toLocaleString()}`, 5, y); y += 5;
+  if (customerName) { doc.text(`Customer: ${customerName}`, 5, y); y += 5; }
+  doc.text("------------------------------------------", 0, y); y += 5;
+ 
+  doc.setFont("courier", "bold");
+  doc.text("Item            Qty   Rate   Total", 2, y); y += 4;
+  doc.setFont("courier", "normal");
+  doc.text("------------------------------------------", 0, y); y += 5;
+ 
+  cart.forEach((item) => {
+    const name = item.name.length > 12 ? item.name.slice(0, 12) : item.name;
+    doc.text(
+      `${name.padEnd(14)}${item.qty.toString().padStart(6, " ")}${Number(item.price).toFixed(2).padStart(9, " ")}${Number(item.total).toFixed(2).padStart(7, " ")}`,
+      2, y
+    );
+    y += 5;
+  });
+ 
+  doc.text("------------------------------------------", 0, y); y += 5;
+  doc.setFont("courier", "bold");
+ 
+  const subtotal = getTotal();
+  const netTotal = subtotal - finalDiscount;
+ 
+  doc.text(`Subtotal     : Rs.${subtotal.toFixed(2)}`, 2, y); y += 5;
+ 
+  // ✅ show discount if applied — customer sees this
+  if (finalDiscount > 0) {
+    doc.setFont("courier", "normal");
+    doc.text(`Discount     : -Rs.${finalDiscount.toFixed(2)}`, 2, y); y += 5;
+    doc.setFont("courier", "bold");
+    doc.text(`Net Total    : Rs.${netTotal.toFixed(2)}`, 2, y); y += 5;
+  }
+ 
+  doc.setFont("courier", "normal");
+  doc.text(`Payment Mode : ${paymentMode.toUpperCase()}`, 2, y); y += 5;
+  doc.text(`Paid Amount  : Rs.${paidAmount || 0}`, 2, y); y += 5;
+  doc.text(`Change       : Rs.${changeAmount || 0}`, 2, y); y += 5;
+ 
+  if (paymentMode === "udhar" || udharAmount > 0) {
+    doc.text(`Udhar        : Rs.${paymentMode === "udhar" ? netTotal : udharAmount}`, 2, y); y += 5;
+  }
+ 
+  y += 1;
+  doc.text("------------------------------------------", 0, y); y += 6;
+  doc.text("Thank you for shopping!", 40, y, { align: "center" }); y += 5;
+  doc.text("Visit Again !", 40, y, { align: "center" });
+ 
+  doc.save("KiranaNeeds_Bill.pdf");
+};
+ 
 
   const finalizePayment = useCallback(async (finalDiscount = 0) => {
-    const total = getTotal();
-    const orderId = `POS-${Date.now().toString().slice(-8)}`;
-    const billStatus = paymentMode === "udhar" ? "udhar" : paymentMode === "split" ? "split" : "completed";
-
-    const { error } = await supabase.from("orders").insert([{
-      order_id: orderId,
-      customer_id: customerId || null, // ✅ link to customer uuid
-      name: customerName || "Walk-in",
-      phone: customerMobile || "",
-      address: "POS",
-      items: cart,
-      total: total,
-      discount: finalDiscount,
-      status: billStatus,
-    }]);
-
-    if (error) {
-      console.error("Supabase save error:", error);
-      toast.error("Failed to save bill to history");
-    }
-
-    saveBill({
-      id: Date.now(),
-      date: new Date().toISOString(),
-      customerName: customerName || "Walk-in",
-      paymentMode,
-      items: cart,
-      total,
-      discount: finalDiscount,
-      paidAmount: paymentMode === "udhar" ? 0 : paidAmount,
-      changeAmount,
-      udharAmount: paymentMode === "udhar" ? total : udharAmount,
-    });
-
-    await generateInvoice();
-
-    // ✅ reset all state
-    setCart([]);
-    localStorage.removeItem("posCart");
-    setCustomerName("");
-    setCustomerMobile("");
-    setCustomerId(null);
-    setPaidAmount("");
-    setChangeAmount(0);
-    setUdharAmount(0);
-    setDiscountAmount(0);
-    setPaymentMode("cash");
-    toast.success(finalDiscount > 0 ? `Bill saved with ₹${finalDiscount} discount ✅` : "Bill saved & downloaded ✅");
-  }, [cart, paymentMode, paidAmount, changeAmount, udharAmount, customerName, customerMobile, customerId]);
-
+  const total = getTotal();
+  const orderId = `POS-${Date.now().toString().slice(-8)}`;
+  const billStatus =
+    paymentMode === "udhar" ? "udhar" :
+    paymentMode === "split" ? "split" : "completed";
+ 
+  const order = {
+    order_id: orderId,
+    customer_id: customerId || null,
+    name: customerName || "Walk-in",
+    phone: customerMobile || "",
+    address: "POS",
+    items: cart,
+    total: total,
+    discount: finalDiscount,
+    status: billStatus,
+    created_at: new Date().toISOString(),
+  };
+ 
+  // ✅ save locally first — works even if offline
+  await saveOrder(order);
+ 
+  await generateInvoice(finalDiscount);
+ 
+  // reset state
+  setCart([]);
+  localStorage.removeItem("posCart");
+  setCustomerName("");
+  setCustomerMobile("");
+  setCustomerId(null);
+  setPaidAmount("");
+  setChangeAmount(0);
+  setUdharAmount(0);
+  setDiscountAmount(0);
+  setPaymentMode("cash");
+ 
+  toast.success(
+    finalDiscount > 0
+      ? `Bill saved with ₹${finalDiscount} discount ✅`
+      : "Bill saved & downloaded ✅"
+  );
+}, [cart, paymentMode, paidAmount, changeAmount, udharAmount,
+    customerName, customerMobile, customerId]);
   const completePayment = useCallback(async () => {
     if (cart.length === 0) { toast.error("Cart is empty!"); return; }
     const total = getTotal();
@@ -342,7 +485,13 @@ export default function POS() {
       const { p, variant } = flatSuggestions[highlightedIndex] || flatSuggestions[0];
       const price = Number(variant.price || 0);
       setCart((prev) => [...prev, { ...p, selectedVariant: variant.label, price, qty: 1, total: price }]);
-      setSearch(""); setHighlightedIndex(0);
+      setSearch(""); 
+      setHighlightedIndex(0);
+      inputRef.current?.focus();
+      if (inputRef.current) {
+        inputRef.current.value = "";
+        inputRef.current.focus();
+      }
     }
   };
 
@@ -517,7 +666,17 @@ export default function POS() {
       </div>
 
       {/* Total */}
-      <div className="text-right text-xl font-bold text-green-400">Total: ₹{getTotal()}.00</div>
+     <div className="flex justify-between items-center mt-2 px-1">
+  <div className="flex gap-3 text-sm">
+    <span className="text-blue-400 font-medium">
+      Profit: ₹{getProfit().toFixed(0)}
+    </span>
+    <span className="text-gray-400">
+      {getMargin()}% margin
+    </span>
+  </div>
+  <span className="text-lg font-semibold">Total: ₹{getTotal()}.00</span>
+</div>
 
       {/* Payment mode */}
       <div className="flex gap-2 flex-wrap">
@@ -577,11 +736,27 @@ export default function POS() {
       <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700">
         <span className="font-semibold text-lg">KiranaNeeds POS</span>
         <div className="flex items-center gap-2">
+          <SyncStatus/>
           {cart.length > 0 && (
-            <span className="bg-cyan-600 text-white text-md px-2 py-0.5 rounded-full">
-              {cart.length} items · ₹{getTotal()}
-            </span>
-          )}
+  <div className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm">
+    <div className="flex justify-between items-center">
+      <span className="text-gray-400">Your Profit</span>
+      <span className={`font-bold ${getProfit() >= 0 ? "text-blue-400" : "text-red-400"}`}>
+        ₹{getProfit().toFixed(2)}
+      </span>
+    </div>
+    <div className="flex justify-between items-center mt-1">
+      <span className="text-gray-400">Margin</span>
+      <span className="text-gray-300">{getMargin()}%</span>
+    </div>
+    {getTotal() !== getProfit() && (
+      <div className="flex justify-between items-center mt-1">
+        <span className="text-gray-400">Cost of Goods</span>
+        <span className="text-gray-300">₹{(getTotal() - getProfit()).toFixed(2)}</span>
+      </div>
+    )}
+  </div>
+)}
           <button onClick={() => window.open("https://www.kirananeeds.com/admin/products", "_blank")}
             className="text-md bg-blue-600 px-2 py-1 rounded">+ Item</button>
           <button onClick={() => setShowCustomersModal(true)}
@@ -596,9 +771,17 @@ export default function POS() {
         <div className="flex-1 flex flex-col p-4 border-r border-gray-700 overflow-hidden">
           {SearchSection}
           {CartSection}
-          <div className="flex justify-end mt-2">
-            <span className="text-lg font-semibold">Total: ₹{getTotal()}.00</span>
-          </div>
+          <div className="flex justify-between items-center mt-2 px-1">
+  <div className="flex gap-3 text-sm">
+    <span className="text-blue-400 font-medium">
+      Profit: ₹{getProfit().toFixed(0)}
+    </span>
+    <span className="text-gray-400">
+      {getMargin()}% margin
+    </span>
+  </div>
+  <span className="text-lg font-semibold">Total: ₹{getTotal()}.00</span>
+</div>
         </div>
         <div className="w-96 flex flex-col p-4 bg-gray-800 overflow-y-auto">
           <h2 className="text-yellow-400 font-semibold mb-3">🧾 Customer & Payment</h2>
@@ -624,11 +807,17 @@ export default function POS() {
             {SearchSection}
             {CartSection}
             <div className="flex justify-between items-center mt-2">
-              <span className="text-sm font-semibold">Total: ₹{getTotal()}.00</span>
-              <button onClick={() => setActiveTab("payment")} className="bg-blue-600 text-sm px-4 py-1.5 rounded-lg">
-                Pay →
-              </button>
-            </div>
+  <div className="flex flex-col">
+    <span className="text-sm font-semibold">Total: ₹{getTotal()}.00</span>
+    <span className="text-xs text-blue-400">
+      Profit: ₹{getProfit().toFixed(0)} · {getMargin()}%
+    </span>
+  </div>
+  <button onClick={() => setActiveTab("payment")}
+    className="bg-blue-600 text-sm px-4 py-1.5 rounded-lg">
+    Pay →
+  </button>
+</div>
           </div>
         )}
 
