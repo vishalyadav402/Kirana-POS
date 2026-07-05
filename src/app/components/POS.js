@@ -1,16 +1,12 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { getProducts } from "../utils/storage";
-import { useRouter } from "next/navigation";
+import { getProducts, getCustomers, addCustomer, saveOrder } from "../utils/storage";
 import { MdElectricBolt } from "react-icons/md";
-import { saveBill } from "../utils/billingStorage";
-import { getCustomers, addCustomer, saveOrder } from "../utils/storage";
 import { toast } from "react-toastify";
 import Customers from "./Customers";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import { CiBarcode } from "react-icons/ci";
 import { MdClose } from "react-icons/md";
-import { supabase } from "../utils/supabase";
 import Image from "next/image";
 import SyncStatus from "./SyncStatus";
 import { syncAll } from "../utils/sync";
@@ -40,6 +36,7 @@ export default function POS() {
   const [showDiscountConfirm, setShowDiscountConfirm] = useState(false);
   const [pendingDiscount, setPendingDiscount] = useState(0);
   const [pendingPaidAmount, setPendingPaidAmount] = useState(0);
+  const [isCompleting, setIsCompleting] = useState(false); // ✅ loader + duplicate guard
 
   const inputRef = useRef(null);
   const customerInputRef = useRef(null);
@@ -47,30 +44,25 @@ export default function POS() {
   const quickItemRef = useRef(null);
   const videoRef = useRef(null);
   const controlsRef = useRef(null);
-  const router = useRouter();
+  const isProcessing = useRef(false); // ✅ hard duplicate guard
 
   // ─── EFFECTS ────────────────────────────────────────────
 
   useEffect(() => setHighlightedCustomerIndex(0), [customerName]);
-
   useEffect(() => { syncAll(); }, []);
 
-  // ── Physical barcode scanner (keyboard wedge) ──────────
+  // ── Physical barcode scanner ───────────────────────────
   useEffect(() => {
     let barcode = "";
     let timer;
-
     const handleBarcodeKeyDown = (e) => {
       if (timer) clearTimeout(timer);
-
       if (e.key === "Enter") {
         if (!barcode) return;
         const scannedCode = barcode;
         barcode = "";
-
         let matched = null;
         let matchedVariant = null;
-
         for (const p of products) {
           const found = p.variants?.find((v) => v.barcode === scannedCode);
           if (found) { matched = p; matchedVariant = found; break; }
@@ -79,12 +71,10 @@ export default function POS() {
           matched = products.find((p) => p.slug === scannedCode);
           matchedVariant = matched?.variants?.[0] || null;
         }
-
         if (matched && matchedVariant) {
           const price = Number(matchedVariant.price || 0);
-          const cp = Number(matchedVariant.cp || 0); // ✅ cp from variant
+          const cp = Number(matchedVariant.cp || 0);
           const label = matchedVariant.label || "Default";
-
           setCart((prev) => {
             const index = prev.findIndex(
               (item) => item.id === matched.id && item.selectedVariant === label
@@ -102,12 +92,12 @@ export default function POS() {
               ...matched,
               selectedVariant: label,
               price,
-              cp,   // ✅
+              cp,
+              itemDiscount: 0,
               qty: 1,
               total: price,
             }];
           });
-
           setSearch("");
           setHighlightedIndex(0);
           inputRef.current?.focus();
@@ -117,12 +107,9 @@ export default function POS() {
         }
         return;
       }
-
       if (e.key.length === 1) barcode += e.key;
-
       timer = setTimeout(() => { barcode = ""; }, 100);
     };
-
     window.addEventListener("keydown", handleBarcodeKeyDown);
     return () => window.removeEventListener("keydown", handleBarcodeKeyDown);
   }, [products]);
@@ -140,7 +127,6 @@ export default function POS() {
               const scannedCode = result.getText();
               let matched = null;
               let matchedVariant = null;
-
               for (const p of products) {
                 const found = p.variants?.find((v) => v.barcode === scannedCode);
                 if (found) { matched = p; matchedVariant = found; break; }
@@ -149,10 +135,9 @@ export default function POS() {
                 matched = products.find((p) => p.slug === scannedCode);
                 matchedVariant = matched?.variants?.[0] || null;
               }
-
               if (matched && matchedVariant) {
                 const price = Number(matchedVariant.price || 0);
-                const cp = Number(matchedVariant.cp || 0); // ✅ cp from variant
+                const cp = Number(matchedVariant.cp || 0);
                 const label = matchedVariant.label || "Default";
                 setCart((prev) => {
                   const existingIndex = prev.findIndex(
@@ -171,7 +156,8 @@ export default function POS() {
                     ...matched,
                     selectedVariant: label,
                     price,
-                    cp,   // ✅
+                    cp,
+                    itemDiscount: 0,
                     qty: 1,
                     total: price,
                   }];
@@ -198,25 +184,20 @@ export default function POS() {
     const timer = setTimeout(() => { inputRef.current?.focus(); }, 100);
     return () => clearTimeout(timer);
   }, []);
-
   useEffect(() => { if (showQuickItemModal) setTimeout(() => quickItemRef.current?.focus(), 100); }, [showQuickItemModal]);
   useEffect(() => { setHighlightedIndex(0); }, [search]);
-
   useEffect(() => {
     const loadCustomers = async () => { const data = await getCustomers(); setCustomers(data || []); };
     loadCustomers();
   }, []);
-
   useEffect(() => {
     const loadProducts = async () => { const data = await getProducts(); setProducts(data || []); };
     loadProducts();
   }, []);
-
   useEffect(() => {
     const savedCart = localStorage.getItem("posCart");
     if (savedCart) setCart(JSON.parse(savedCart));
   }, []);
-
   useEffect(() => { localStorage.setItem("posCart", JSON.stringify(cart)); }, [cart]);
 
   // ─── DERIVED ────────────────────────────────────────────
@@ -233,25 +214,23 @@ export default function POS() {
 
   // ─── CART HELPERS ───────────────────────────────────────
 
-  const updateQty = (index, qty) => {
-    const updatedCart = [...cart];
-    const price = Number(updatedCart[index].price);
-    updatedCart[index].qty = qty;
-    updatedCart[index].total = qty * price;
-    setCart(updatedCart);
-  };
+  // ✅ total accounts for item-level discounts
+  const getTotal = () => cart.reduce((sum, i) => {
+    const itemDiscount = Number(i.itemDiscount || 0);
+    return sum + i.total - itemDiscount;
+  }, 0);
 
-  const removeFromCart = (index) => setCart(cart.filter((_, i) => i !== index));
-  const getTotal = () => cart.reduce((sum, i) => sum + i.total, 0);
+  // ✅ total items (sum of qty)
+  const getTotalQty = () => cart.reduce((sum, i) => sum + i.qty, 0);
 
-  // ✅ profit uses cp captured at add-time
-  const getProfit = () =>
-    cart.reduce((sum, item) => {
-      const cp = Number(item.cp || 0);
-      const price = Number(item.price || 0);
-      const qty = Number(item.qty || 1);
-      return sum + (price - cp) * qty;
-    }, 0);
+  // ✅ profit accounts for item-level discounts
+  const getProfit = () => cart.reduce((sum, item) => {
+    const cp = Number(item.cp || 0);
+    const price = Number(item.price || 0);
+    const qty = Number(item.qty || 1);
+    const itemDiscount = Number(item.itemDiscount || 0);
+    return sum + ((price - cp) * qty) - itemDiscount;
+  }, 0);
 
   const getMargin = () => {
     const total = getTotal();
@@ -260,13 +239,31 @@ export default function POS() {
     return ((profit / total) * 100).toFixed(1);
   };
 
+  const updateQty = (index, qty) => {
+    const updatedCart = [...cart];
+    const price = Number(updatedCart[index].price);
+    updatedCart[index].qty = qty;
+    updatedCart[index].total = qty * price;
+    setCart(updatedCart);
+  };
+
+  // ✅ item-level discount
+  const updateItemDiscount = (index, discount) => {
+    const updatedCart = [...cart];
+    updatedCart[index].itemDiscount = Number(discount) || 0;
+    setCart(updatedCart);
+  };
+
+  const removeFromCart = (index) => setCart(cart.filter((_, i) => i !== index));
+
   const addQuickItemToCart = () => {
     if (!quickItem.name.trim() || !quickItem.price) { toast.error("Enter item name & price"); return; }
     const price = Number(quickItem.price);
     setCart((prev) => [...prev, {
       name: quickItem.name,
       price,
-      cp: 0, // no cp for quick items
+      cp: 0,
+      itemDiscount: 0,
       selectedVariant: "Custom",
       qty: 1,
       total: price,
@@ -306,112 +303,220 @@ export default function POS() {
     else { setChangeAmount(0); setUdharAmount(total - paid); }
   };
 
-  const generateInvoice = async (finalDiscount = 0) => {
-    const { default: jsPDF } = await import("jspdf");
-    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [80, 200] });
-    let y = 10;
 
-    doc.setFont("courier", "bold"); doc.setFontSize(13);
-    doc.text("KiranaNeeds Store", 40, y, { align: "center" }); y += 3;
-    doc.setFont("courier", "normal"); doc.setFontSize(8);
-    doc.text("Har Ghar Ka Bharosa", 40, y, { align: "center" }); y += 5;
-    doc.text("Prithviganj Bazaar, Patti Pratapgarh", 40, y, { align: "center" }); y += 5;
-    doc.text("Call/WhatsApp: 8601096821", 40, y, { align: "center" }); y += 6;
+const generateInvoice = async (finalDiscount = 0) => {
+  const { default: jsPDF } = await import("jspdf");
+  const QRCode = await import("qrcode");
 
-    doc.setFontSize(9);
-    doc.text(`Bill No: INV-${Date.now().toString().slice(-6)}`, 5, y); y += 4;
-    doc.text(`Date: ${new Date().toLocaleString()}`, 5, y); y += 5;
-    if (customerName) { doc.text(`Customer: ${customerName}`, 5, y); y += 5; }
-    doc.text("------------------------------------------", 0, y); y += 5;
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [80, 200] });
+  let y = 10;
 
+  // ─── HEADER ───────────────────────────────────────────
+  doc.setFont("courier", "bold"); doc.setFontSize(13);
+  doc.text("KiranaNeeds Store", 40, y, { align: "center" }); y += 4;
+
+  doc.setFont("courier", "normal"); doc.setFontSize(8);
+  doc.text("Har Ghar Ka Bharosa", 40, y, { align: "center" }); y += 4;
+  doc.text("Prithviganj Bazaar, Patti Pratapgarh", 40, y, { align: "center" }); y += 4;
+  doc.text("Call/WhatsApp: 8601096821", 40, y, { align: "center" }); y += 6;
+
+  // ─── BILL INFO ────────────────────────────────────────
+  doc.setFontSize(9);
+  doc.text(`Bill No : INV-${Date.now().toString().slice(-6)}`, 2, y); y += 4;
+  doc.text(`Date    : ${new Date().toLocaleString()}`, 2, y); y += 4;
+  if (customerName) { doc.text(`Customer: ${customerName}`, 2, y); y += 4; }
+  if (customerMobile) { doc.text(`Mobile  : ${customerMobile}`, 2, y); y += 4; }
+
+  // ─── ITEMS TABLE ──────────────────────────────────────
+  doc.setFontSize(8);
+  doc.text("----------------------------------------", 0, y); y += 6;
+  doc.setFont("courier", "bold");
+  // columns: Item(13) Qty(4) Rate(7) Disc(5) Total(7)
+  doc.text(
+    `${"Item".padEnd(20)}${"Qty".padStart(4)}${"Rate".padStart(7)}${"Disc".padStart(5)}${"Total".padStart(7)}`,
+    2, y
+  );
+  y += 3;
+  doc.setFont("courier", "normal");
+  doc.text("----------------------------------------", 0, y); y += 6;
+
+  cart.forEach((item) => {
+    const itemDiscount = Number(item.itemDiscount || 0);
+    const netItemTotal = item.total - itemDiscount;
+    const name = item.name.length > 13 ? item.name.slice(0, 13) : item.name;
+    const mrp = Number(item.mrp || item.price || 0);
+    const price = Number(item.price || 0);
+
+    // main item row
+    doc.text(
+      `${name.padEnd(20)}${String(item.qty).padStart(4)}${price.toFixed(0).padStart(7)}${itemDiscount.toFixed(0).padStart(5)}${netItemTotal.toFixed(0).padStart(7)}`,
+      2, y
+    );
+    y += 6;
+
+    // show MRP below if different from selling price
+    if (mrp > price) {
+      doc.setFontSize(7);
+      doc.text(`  MRP: Rs.${mrp.toFixed(2)}  (Save Rs.${(mrp - price).toFixed(2)})`, 2, y);
+      doc.setFontSize(8);
+      y += 6;
+    }
+
+    // show variant label if present
+    if (item.selectedVariant && item.selectedVariant !== "Custom") {
+      doc.setFontSize(7);
+      doc.text(`  (${item.selectedVariant})`, 0, y);
+      doc.setFontSize(8);
+      y += 3;
+    }
+  });
+
+  doc.text("----------------------------------------", 0, y); y += 6;
+
+  // ─── SUMMARY ──────────────────────────────────────────
+  doc.setFont("courier", "bold"); doc.setFontSize(9);
+
+  const subtotal = getTotal();
+  const netTotal = subtotal - finalDiscount;
+
+  // subtotal
+  doc.setFont("courier", "normal");
+  doc.text(`Subtotal     :`, 2, y);
+  doc.text(`Rs.${subtotal.toFixed(2)}`, 76, y, { align: "right" }); y += 5;
+
+  // bill-level discount (from short payment)
+  if (finalDiscount > 0) {
+    doc.text(`Discount     :`, 2, y);
+    doc.text(`-Rs.${finalDiscount.toFixed(2)}`, 76, y, { align: "right" }); y += 5;
     doc.setFont("courier", "bold");
-    doc.text("Item            Qty   Rate   Total", 2, y); y += 4;
+    doc.text(`Net Total    :`, 2, y);
+    doc.text(`Rs.${netTotal.toFixed(2)}`, 76, y, { align: "right" }); y += 5;
     doc.setFont("courier", "normal");
-    doc.text("------------------------------------------", 0, y); y += 5;
+  }
 
-    cart.forEach((item) => {
-      const name = item.name.length > 12 ? item.name.slice(0, 12) : item.name;
-      doc.text(
-        `${name.padEnd(14)}${item.qty.toString().padStart(6, " ")}${Number(item.price).toFixed(2).padStart(9, " ")}${Number(item.total).toFixed(2).padStart(7, " ")}`,
-        2, y
-      );
-      y += 5;
+  // payment mode
+  doc.text(`Payment Mode :`, 2, y);
+  doc.text(paymentMode.toUpperCase(), 76, y, { align: "right" }); y += 5;
+
+  // paid amount (not for udhar)
+  if (paymentMode !== "udhar") {
+    doc.text(`Paid Amount  :`, 2, y);
+    doc.text(`Rs.${Number(paidAmount || 0).toFixed(2)}`, 76, y, { align: "right" }); y += 5;
+  }
+
+  // change
+  if (changeAmount > 0) {
+    doc.text(`Change       :`, 2, y);
+    doc.text(`Rs.${changeAmount.toFixed(2)}`, 76, y, { align: "right" }); y += 5;
+  }
+
+  // ✅ udhar only shown for split mode
+  if (paymentMode === "split" && udharAmount > 0) {
+    doc.setFont("courier", "bold");
+    doc.text(`Udhar (Due)  :`, 2, y);
+    doc.text(`Rs.${udharAmount.toFixed(2)}`, 76, y, { align: "right" });
+    doc.setFont("courier", "normal");
+    y += 5;
+  }
+
+  // full udhar — just show the total as due
+  if (paymentMode === "udhar") {
+    doc.setFont("courier", "bold");
+    doc.text(`Amount Due   :`, 2, y);
+    doc.text(`Rs.${netTotal.toFixed(2)}`, 76, y, { align: "right" });
+    doc.setFont("courier", "normal");
+    y += 5;
+  }
+
+  doc.text("----------------------------------------", 0, y); y += 6;
+
+  // ─── FOOTER ───────────────────────────────────────────
+  doc.setFont("courier", "bold"); doc.setFontSize(9);
+  doc.text("Thank you for shopping!", 40, y, { align: "center" }); y += 5;
+  doc.setFont("courier", "normal"); doc.setFontSize(8);
+  doc.text("Visit Again !", 40, y, { align: "center" }); y += 8;
+
+  // ─── QR CODE ──────────────────────────────────────────
+  try {
+    // QR points to WhatsApp for reorders — change URL to whatever you prefer
+    const qrUrl = "https://wa.me/919506280968?text=Hi%20KiranaNeeds%2C%20I%20want%20to%20place%20an%20order";
+    const qrDataUrl = await QRCode.default.toDataURL(qrUrl, {
+      width: 200,
+      margin: 1,
+      color: { dark: "#000000", light: "#ffffff" },
     });
+    const qrSize = 28; // mm
+    const qrX = (80 - qrSize) / 2; // centered on 80mm paper
+    doc.addImage(qrDataUrl, "PNG", qrX, y, qrSize, qrSize);
+    y += qrSize + 2;
+    doc.setFontSize(7);
+    doc.text("Scan to reorder on WhatsApp", 40, y, { align: "center" });
+    y += 3;
+    doc.text("www.kirananeeds.com", 40, y, { align: "center" });
+  } catch (qrErr) {
+    console.warn("QR generation failed:", qrErr);
+  }
 
-    doc.text("------------------------------------------", 0, y); y += 5;
-    doc.setFont("courier", "bold");
-
-    const subtotal = getTotal();
-    const netTotal = subtotal - finalDiscount;
-
-    doc.text(`Subtotal     : Rs.${subtotal.toFixed(2)}`, 2, y); y += 5;
-
-    if (finalDiscount > 0) {
-      doc.setFont("courier", "normal");
-      doc.text(`Discount     : -Rs.${finalDiscount.toFixed(2)}`, 2, y); y += 5;
-      doc.setFont("courier", "bold");
-      doc.text(`Net Total    : Rs.${netTotal.toFixed(2)}`, 2, y); y += 5;
-    }
-
-    doc.setFont("courier", "normal");
-    doc.text(`Payment Mode : ${paymentMode.toUpperCase()}`, 2, y); y += 5;
-    doc.text(`Paid Amount  : Rs.${paidAmount || 0}`, 2, y); y += 5;
-    doc.text(`Change       : Rs.${changeAmount || 0}`, 2, y); y += 5;
-
-    if (paymentMode === "udhar" || udharAmount > 0) {
-      doc.text(`Udhar        : Rs.${paymentMode === "udhar" ? netTotal : udharAmount}`, 2, y); y += 5;
-    }
-
-    y += 1;
-    doc.text("------------------------------------------", 0, y); y += 6;
-    doc.text("Thank you for shopping!", 40, y, { align: "center" }); y += 5;
-    doc.text("Visit Again !", 40, y, { align: "center" });
-    doc.save("KiranaNeeds_Bill.pdf");
-  };
+  doc.save(`${customerName || "Guest" +" "+"KiranaNeeds_Bill.pdf"}`);
+};
 
   const finalizePayment = useCallback(async (finalDiscount = 0) => {
-    const total = getTotal();
-    const orderId = `POS-${Date.now().toString().slice(-8)}`;
-    const billStatus =
-      paymentMode === "udhar" ? "udhar" :
-      paymentMode === "split" ? "split" : "completed";
+    // ✅ hard duplicate guard
+    if (isProcessing.current) return;
+    isProcessing.current = true;
+    setIsCompleting(true);
 
-    const order = {
-      order_id: orderId,
-      customer_id: customerId || null,
-      name: customerName || "Walk-in",
-      phone: customerMobile || "",
-      address: "POS",
-      items: cart,   // ✅ items carry cp at save time
-      total: total,
-      discount: finalDiscount,
-      status: billStatus,
-      created_at: new Date().toISOString(),
-    };
+    try {
+      const total = getTotal();
+      const orderId = `POS-${Date.now().toString().slice(-8)}`;
+      const billStatus =
+        paymentMode === "udhar" ? "udhar" :
+        paymentMode === "split" ? "split" : "completed";
 
-    await saveOrder(order);
-    await generateInvoice(finalDiscount);
+      const order = {
+        order_id: orderId,
+        customer_id: customerId || null,
+        name: customerName || "Walk-in",
+        phone: customerMobile || "",
+        address: "POS",
+        items: cart,
+        total: total,
+        discount: finalDiscount,
+        status: billStatus,
+        created_at: new Date().toISOString(),
+      };
 
-    setCart([]);
-    localStorage.removeItem("posCart");
-    setCustomerName("");
-    setCustomerMobile("");
-    setCustomerId(null);
-    setPaidAmount("");
-    setChangeAmount(0);
-    setUdharAmount(0);
-    setDiscountAmount(0);
-    setPaymentMode("cash");
+      await saveOrder(order);
+      await generateInvoice(finalDiscount);
 
-    toast.success(
-      finalDiscount > 0
-        ? `Bill saved with ₹${finalDiscount} discount ✅`
-        : "Bill saved & downloaded ✅"
-    );
+      setCart([]);
+      localStorage.removeItem("posCart");
+      setCustomerName("");
+      setCustomerMobile("");
+      setCustomerId(null);
+      setPaidAmount("");
+      setChangeAmount(0);
+      setUdharAmount(0);
+      setDiscountAmount(0);
+      setPaymentMode("cash");
+
+      toast.success(
+        finalDiscount > 0
+          ? `Bill saved with ₹${finalDiscount} discount ✅`
+          : "Bill saved & downloaded ✅"
+      );
+    } catch (err) {
+      console.error("Payment error:", err);
+      toast.error("Something went wrong. Please try again.");
+    } finally {
+      isProcessing.current = false;
+      setIsCompleting(false);
+    }
   }, [cart, paymentMode, paidAmount, changeAmount, udharAmount,
       customerName, customerMobile, customerId]);
 
   const completePayment = useCallback(async () => {
+    if (isProcessing.current) return; // ✅ block if already running
     if (cart.length === 0) { toast.error("Cart is empty!"); return; }
     const total = getTotal();
 
@@ -419,13 +524,11 @@ export default function POS() {
       toast.error("Customer name is required for Udhar/Split payments!");
       return;
     }
-
     if (paymentMode === "udhar") {
       setUdharAmount(total);
       await finalizePayment(0);
       return;
     }
-
     if (paymentMode === "cash" || paymentMode === "upi") {
       if (paidAmount === "") { toast.error("Enter paid amount!"); return; }
       if (paidAmount < total) {
@@ -438,7 +541,6 @@ export default function POS() {
       await finalizePayment(0);
       return;
     }
-
     if (paymentMode === "split") {
       if (paidAmount === "" || paidAmount <= 0) { toast.warning("Enter paid amount for split payment"); return; }
       await finalizePayment(0);
@@ -463,12 +565,13 @@ export default function POS() {
     if (e.key === "Enter" && flatSuggestions.length > 0) {
       const { p, variant } = flatSuggestions[highlightedIndex] || flatSuggestions[0];
       const price = Number(variant.price || 0);
-      const cp = Number(variant.cp || 0); // ✅ cp from variant
+      const cp = Number(variant.cp || 0);
       setCart((prev) => [...prev, {
         ...p,
         selectedVariant: variant.label,
         price,
-        cp,   // ✅
+        cp,
+        itemDiscount: 0,
         qty: 1,
         total: price,
       }]);
@@ -528,20 +631,29 @@ export default function POS() {
             <li key={i}
               onClick={() => {
                 const price = Number(variant.price || 0);
-                const cp = Number(variant.cp || 0); // ✅ cp from variant
+                const cp = Number(variant.cp || 0);
                 setCart((prev) => [...prev, {
                   ...p,
                   selectedVariant: variant.label,
                   price,
-                  cp,   // ✅
+                  cp,
+                  itemDiscount: 0,
                   qty: 1,
                   total: price,
                 }]);
                 setSearch(""); setHighlightedIndex(0);
               }}
               className={`px-3 py-2 cursor-pointer flex justify-between items-center ${highlightedIndex === i ? "bg-cyan-600" : "hover:bg-gray-800"}`}>
-              <div className="flex gap-4">
-                <Image height={20} width={40} src={p.image || "/"} alt="product image" />
+              <div className="flex gap-3 items-center">
+                {p.image && (
+                  <Image
+                    height={32} width={32}
+                    src={p.image}
+                    alt={p.name}
+                    className="rounded object-cover"
+                    style={{ width: 32, height: 32 }}
+                  />
+                )}
                 <div className="flex flex-col">
                   <span className="text-sm text-white">{p.name}</span>
                   <span className="text-xs text-gray-300">{variant.label}</span>
@@ -566,31 +678,78 @@ export default function POS() {
         <thead className="border-b-2 border-cyan-800 sticky top-0 bg-gray-800">
           <tr>
             <th className="p-2">Item</th>
-            <th className="p-2">Qty</th>
-            <th className="p-2">Price</th>
-            <th className="p-2">Total</th>
+            <th className="p-2 text-center">Qty</th>
+            <th className="p-2 text-right">CP / Price</th>
+            <th className="p-2 text-right">Disc</th>
+            <th className="p-2 text-right">Total</th>
             <th className="p-2"></th>
           </tr>
         </thead>
         <tbody>
-          {[...cart].map((item, originalIndex) => ({ item, originalIndex })).reverse().map(({ item, originalIndex }) => (
-            <tr key={originalIndex} className="border-b border-gray-600 hover:bg-gray-700">
-              <td className="p-2">
-                <div className="truncate max-w-[120px]">{item.name}</div>
-                {item.selectedVariant && <div className="text-xs text-gray-400">({item.selectedVariant})</div>}
-              </td>
-              <td className="p-2">
-                <input type="number" min="1" value={item.qty}
-                  onChange={(e) => updateQty(originalIndex, Number(e.target.value))}
-                  className="w-14 p-1 rounded bg-gray-700 text-white text-sm" />
-              </td>
-              <td className="p-2">₹{item.price}</td>
-              <td className="p-2">₹{item.total}</td>
-              <td className="p-2">
-                <button onClick={() => removeFromCart(originalIndex)} className="text-red-400 text-lg">✕</button>
-              </td>
-            </tr>
-          ))}
+          {[...cart].map((item, originalIndex) => ({ item, originalIndex }))
+            .reverse()
+            .map(({ item, originalIndex }) => {
+              const itemDiscount = Number(item.itemDiscount || 0);
+              const netItemTotal = item.total - itemDiscount;
+              return (
+                <tr key={originalIndex} className="border-b border-gray-600 hover:bg-gray-700">
+                  {/* ✅ image + name */}
+                  <td className="p-2">
+                    <div className="flex items-center gap-2">
+                      {item.image && (
+                        <Image
+                          src={item.image}
+                          alt={item.name}
+                          width={28} height={28}
+                          className="rounded object-cover flex-shrink-0"
+                          style={{ width: 28, height: 28 }}
+                        />
+                      )}
+                      <div>
+                        <div className="truncate max-w-[90px]">{item.name}</div>
+                        {item.selectedVariant && (
+                          <div className="text-xs text-gray-400">({item.selectedVariant})</div>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+                  {/* qty */}
+                  <td className="p-2">
+                    <input type="number" min="1" value={item.qty}
+                      onChange={(e) => updateQty(originalIndex, Number(e.target.value))}
+                      className="w-12 p-1 rounded bg-gray-700 text-white text-sm text-center" />
+                  </td>
+                  {/* ✅ CP + price */}
+                  <td className="p-2 text-right">
+                    <div className="text-white text-sm">₹{item.price}</div>
+                    {item.cp > 0 && (
+                      <div className="text-xs text-gray-400">CP ₹{item.cp}</div>
+                    )}
+                  </td>
+                  {/* ✅ item-level discount */}
+                  <td className="p-2">
+                    <input
+                      type="number"
+                      min="0"
+                      value={item.itemDiscount || ""}
+                      onChange={(e) => updateItemDiscount(originalIndex, e.target.value)}
+                      placeholder="0"
+                      className="w-14 p-1 rounded bg-gray-700 text-yellow-300 text-sm text-center"
+                    />
+                  </td>
+                  {/* net total */}
+                  <td className="p-2 text-right">
+                    <div className="text-white">₹{netItemTotal.toFixed(0)}</div>
+                    {itemDiscount > 0 && (
+                      <div className="text-xs text-red-400 line-through">₹{item.total}</div>
+                    )}
+                  </td>
+                  <td className="p-2">
+                    <button onClick={() => removeFromCart(originalIndex)} className="text-red-400 text-lg">✕</button>
+                  </td>
+                </tr>
+              );
+            })}
         </tbody>
       </table>
       <button onClick={() => setShowQuickItemModal(true)} title="Quick Add (F2)"
@@ -617,15 +776,9 @@ export default function POS() {
             if (e.key === "Enter") {
               if (filteredCustomers.length > 0) {
                 const c = filteredCustomers[highlightedCustomerIndex] || filteredCustomers[0];
-                setCustomerName(c.name);
-                setCustomerMobile(c.mobile);
-                setCustomerId(c.id);
-                setShowCustomerList(false);
-                setHighlightedCustomerIndex(0);
-              } else if (customerName.trim()) {
-                setShowAddCustomerModal(true);
-                setShowCustomerList(false);
-              }
+                setCustomerName(c.name); setCustomerMobile(c.mobile);
+                setCustomerId(c.id); setShowCustomerList(false); setHighlightedCustomerIndex(0);
+              } else if (customerName.trim()) { setShowAddCustomerModal(true); setShowCustomerList(false); }
             }
             if (e.key === "Escape") setShowCustomerList(false);
           }}
@@ -637,11 +790,8 @@ export default function POS() {
             {filteredCustomers.map((c, i) => (
               <li key={i}
                 onClick={() => {
-                  setCustomerName(c.name);
-                  setCustomerMobile(c.mobile);
-                  setCustomerId(c.id);
-                  setShowCustomerList(false);
-                  setHighlightedCustomerIndex(0);
+                  setCustomerName(c.name); setCustomerMobile(c.mobile);
+                  setCustomerId(c.id); setShowCustomerList(false); setHighlightedCustomerIndex(0);
                 }}
                 className={`px-3 py-2 cursor-pointer flex justify-between text-sm ${highlightedCustomerIndex === i ? "bg-cyan-600" : "hover:bg-gray-600"}`}>
                 <span>{c.name}</span>
@@ -658,8 +808,8 @@ export default function POS() {
         )}
       </div>
 
-      {/* Total + profit summary */}
-      <div className="text-right text-xl font-bold text-green-400">Total: ₹{getTotal()}.00</div>
+      {/* Total */}
+      <div className="text-right text-xl font-bold text-green-400">Total: ₹{getTotal().toFixed(2)}</div>
 
       {/* Payment mode */}
       <div className="flex gap-2 flex-wrap">
@@ -687,7 +837,7 @@ export default function POS() {
       {changeAmount > 0 && <div className="text-green-400 text-sm text-right">Change: ₹{changeAmount}</div>}
       {udharAmount > 0 && paymentMode !== "udhar" && <div className="text-red-400 text-sm text-right">Udhar: ₹{udharAmount}</div>}
 
-      {/* ✅ Profit summary — visible to owner only, never printed */}
+      {/* ✅ Profit box — owner only, never printed */}
       {cart.length > 0 && (
         <div className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm">
           <div className="flex justify-between items-center">
@@ -721,10 +871,26 @@ export default function POS() {
         </button>
       </div>
       <div className="grid grid-cols-1">
+        {/* ✅ loader + duplicate guard on complete button */}
         <button
           onClick={completePayment}
-          className="bg-blue-600 hover:bg-blue-700 p-3 rounded-lg font-semibold text-lg md:text-xl">
-          🖨 Complete & Print (F8)
+          disabled={isCompleting}
+          className={`p-3 rounded-lg font-semibold text-lg md:text-xl flex items-center justify-center gap-2 transition-all ${
+            isCompleting
+              ? "bg-blue-400 cursor-not-allowed"
+              : "bg-blue-600 hover:bg-blue-700"
+          }`}>
+          {isCompleting ? (
+            <>
+              <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+              </svg>
+              Processing...
+            </>
+          ) : (
+            "🖨 Complete & Print (F8)"
+          )}
         </button>
       </div>
     </div>
@@ -740,17 +906,19 @@ export default function POS() {
         <span className="font-semibold text-lg">KiranaNeeds POS</span>
         <div className="flex items-center gap-2">
           <SyncStatus />
-          {/* ✅ Profit in header — owner facing */}
+
+          {/* ✅ item count + profit in header */}
           {cart.length > 0 && (
-            <div className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-xs">
-              <div className="flex gap-3 items-center">
-                <span className={`font-bold ${getProfit() >= 0 ? "text-blue-400" : "text-red-400"}`}>
-                  Profit ₹{getProfit().toFixed(0)}
-                </span>
-                <span className="text-gray-400">{getMargin()}% margin</span>
-              </div>
+            <div className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-xs flex gap-3 items-center">
+              <span className="text-cyan-400 font-bold">{getTotalQty()} items</span>
+              <span className="text-gray-500">|</span>
+              <span className={`font-bold ${getProfit() >= 0 ? "text-blue-400" : "text-red-400"}`}>
+                Profit ₹{getProfit().toFixed(0)}
+              </span>
+              <span className="text-gray-400">{getMargin()}%</span>
             </div>
           )}
+
           <button onClick={() => window.open("https://www.kirananeeds.com/admin/products", "_blank")}
             className="text-md bg-blue-600 px-2 py-1 rounded">+ Item</button>
           <button onClick={() => setShowCustomersModal(true)}
@@ -765,15 +933,15 @@ export default function POS() {
         <div className="flex-1 flex flex-col p-4 border-r border-gray-700 overflow-hidden">
           {SearchSection}
           {CartSection}
-          {/* ✅ Desktop cart bottom bar */}
           <div className="flex justify-between items-center mt-2 px-1">
             <div className="flex gap-3 text-sm">
               <span className={`font-medium ${getProfit() >= 0 ? "text-blue-400" : "text-red-400"}`}>
                 Profit: ₹{getProfit().toFixed(0)}
               </span>
               <span className="text-gray-400">{getMargin()}% margin</span>
+              <span className="text-cyan-400">{getTotalQty()} items</span>
             </div>
-            <span className="text-lg font-semibold">Total: ₹{getTotal()}.00</span>
+            <span className="text-lg font-semibold">Total: ₹{getTotal().toFixed(2)}</span>
           </div>
         </div>
         <div className="w-96 flex flex-col p-4 bg-gray-800 overflow-y-auto">
@@ -787,7 +955,9 @@ export default function POS() {
         <div className="flex border-b border-gray-700">
           <button onClick={() => setActiveTab("cart")}
             className={`flex-1 py-2 text-sm font-medium ${activeTab === "cart" ? "border-b-2 border-cyan-400 text-cyan-400" : "text-gray-400"}`}>
-            🛒 Cart {cart.length > 0 && <span className="ml-1 bg-cyan-600 text-white text-xs px-1.5 rounded-full">{cart.length}</span>}
+            🛒 Cart {cart.length > 0 && (
+              <span className="ml-1 bg-cyan-600 text-white text-xs px-1.5 rounded-full">{getTotalQty()}</span>
+            )}
           </button>
           <button onClick={() => setActiveTab("payment")}
             className={`flex-1 py-2 text-sm font-medium ${activeTab === "payment" ? "border-b-2 border-cyan-400 text-cyan-400" : "text-gray-400"}`}>
@@ -799,12 +969,11 @@ export default function POS() {
           <div className="flex flex-col flex-1 p-3 overflow-hidden">
             {SearchSection}
             {CartSection}
-            {/* ✅ Mobile cart bottom bar */}
             <div className="flex justify-between items-center mt-2">
               <div className="flex flex-col">
-                <span className="text-sm font-semibold">Total: ₹{getTotal()}.00</span>
+                <span className="text-sm font-semibold">Total: ₹{getTotal().toFixed(2)}</span>
                 <span className={`text-xs ${getProfit() >= 0 ? "text-blue-400" : "text-red-400"}`}>
-                  Profit: ₹{getProfit().toFixed(0)} · {getMargin()}%
+                  Profit: ₹{getProfit().toFixed(0)} · {getMargin()}% · {getTotalQty()} items
                 </span>
               </div>
               <button onClick={() => setActiveTab("payment")}
