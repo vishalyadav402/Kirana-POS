@@ -224,13 +224,17 @@ export default function POS() {
   const getTotalQty = () => cart.reduce((sum, i) => sum + i.qty, 0);
 
   // ✅ profit accounts for item-level discounts
-  const getProfit = () => cart.reduce((sum, item) => {
-    const cp = Number(item.cp || 0);
-    const price = Number(item.price || 0);
-    const qty = Number(item.qty || 1);
-    const itemDiscount = Number(item.itemDiscount || 0);
-    return sum + ((price - cp) * qty) - itemDiscount;
-  }, 0);
+ const getProfit = () => cart.reduce((sum, item) => {
+  const rawCp = Number(item.cp);
+  const price = Number(item.price || 0);
+  const qty = Number(item.qty || 1);
+  const itemDiscount = Number(item.itemDiscount || 0);
+
+  const hasCp = !isNaN(rawCp) && rawCp > 0;
+  const itemProfit = hasCp ? (price - rawCp) * qty : 0;
+
+  return sum + itemProfit - itemDiscount;
+}, 0);
 
   const getMargin = () => {
     const total = getTotal();
@@ -305,159 +309,180 @@ export default function POS() {
 
 
 const generateInvoice = async (finalDiscount = 0) => {
-  const { default: jsPDF } = await import("jspdf");
-  const QRCode = await import("qrcode");
 
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [80, 200] });
-  let y = 10;
+
+ const formatDate = (date) => {
+  const d = String(date.getDate()).padStart(2, "0");
+  const month = date.toLocaleString("en-US", { month: "short" }).toLowerCase();
+  const y = String(date.getFullYear()).slice(-2);
+  const time = date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+  return `${d}-${month}-${y}, ${time}`;
+};
+
+  const { default: jsPDF } = await import("jspdf");
+
+  const TOP_MARGIN = 8;
+  const BOTTOM_MARGIN = 2;
+
+  // ─── PASS 1: CALCULATE REQUIRED HEIGHT ─────────────────────
+  let estimatedY = TOP_MARGIN;
+  estimatedY += 5;              // store name
+  estimatedY += 4.5 * 3;        // tagline + address + phone
+  estimatedY += 2;              // gap before bill info
+  estimatedY += 5;              // bill no
+  estimatedY += 5;              // date
+  if (customerName) estimatedY += 5;
+  if (customerMobile) estimatedY += 5;
+  estimatedY += 3 + 6;          // divider + gap
+  estimatedY += 4;              // table header
+  estimatedY += 3 + 5;          // divider + gap
+
+  cart.forEach((item) => {
+    estimatedY += 6;            // main row (tightened)
+    const mrp = Number(item.mrp || item.price || 0);
+    const price = Number(item.price || 0);
+    if (mrp > price) estimatedY += 5.5;   // tightened
+    if (item.selectedVariant && item.selectedVariant !== "Custom") estimatedY += 3.5; // tightened
+  });
+
+  estimatedY += 3 + 6;          // divider + gap
+
+  estimatedY += 5.5;            // subtotal
+  if (finalDiscount > 0) estimatedY += 5.5 * 2;
+  estimatedY += 5.5;            // payment mode
+  if (paymentMode !== "udhar") estimatedY += 5.5;
+  if (changeAmount > 0) estimatedY += 5.5;
+  if (paymentMode === "split" && udharAmount > 0) estimatedY += 5.5;
+  if (paymentMode === "udhar") estimatedY += 5.5;
+
+  estimatedY += 3 + 6;          // divider + gap
+  estimatedY += 5.5 * 2;        // thank you + visit again
+  estimatedY += BOTTOM_MARGIN;
+
+  const pageHeight = Math.max(estimatedY, 60);
+
+  // ─── CREATE DOC ──────────────────────────────────────────
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [80, pageHeight] });
+  let y = TOP_MARGIN;
 
   // ─── HEADER ───────────────────────────────────────────
-  doc.setFont("courier", "bold"); doc.setFontSize(13);
-  doc.text("KiranaNeeds Store", 40, y, { align: "center" }); y += 4;
+  doc.setFont("courier", "bold"); doc.setFontSize(15);
+  doc.text("KiranaNeeds Store", 40, y, { align: "center" }); y += 5;
 
-  doc.setFont("courier", "normal"); doc.setFontSize(8);
-  doc.text("Har Ghar Ka Bharosa", 40, y, { align: "center" }); y += 4;
-  doc.text("Prithviganj Bazaar, Patti Pratapgarh", 40, y, { align: "center" }); y += 4;
-  doc.text("Call/WhatsApp: 8601096821", 40, y, { align: "center" }); y += 6;
+  doc.setFont("courier", "normal"); doc.setFontSize(9);
+  doc.text("Har Ghar Ka Bharosa", 40, y, { align: "center" }); y += 4.5;
+  doc.text("Prithviganj Bazaar, Patti Pratapgarh", 40, y, { align: "center" }); y += 4.5;
+  doc.text("Call/WhatsApp: 9670495191", 40, y, { align: "center" }); y += 6.5;
 
   // ─── BILL INFO ────────────────────────────────────────
-  doc.setFontSize(9);
-  doc.text(`Bill No : INV-${Date.now().toString().slice(-6)}`, 2, y); y += 4;
-  doc.text(`Date    : ${new Date().toLocaleString()}`, 2, y); y += 4;
-  if (customerName) { doc.text(`Customer: ${customerName}`, 2, y); y += 4; }
-  if (customerMobile) { doc.text(`Mobile  : ${customerMobile}`, 2, y); y += 4; }
+  doc.setFontSize(10);
+  doc.text(`Bill No : INV-${Date.now().toString().slice(-6)}`, 2, y); y += 5;
+  doc.text(`Date    : ${formatDate(new Date())}`, 2, y); y += 5;
+  if (customerName) { doc.text(`Customer: ${customerName}`, 2, y); y += 5; }
+  if (customerMobile) { doc.text(`Mobile  : ${customerMobile}`, 2, y); y += 5; }
 
-  // ─── ITEMS TABLE ──────────────────────────────────────
-  doc.setFontSize(8);
+  // ─── ITEMS TABLE (fixed width overflow) ────────────────
+  doc.setFontSize(9);
   doc.text("----------------------------------------", 0, y); y += 6;
   doc.setFont("courier", "bold");
-  // columns: Item(13) Qty(4) Rate(7) Disc(5) Total(7)
+  // columns: Item(16) Qty(3) Rate(6) Disc(4) Total(6) = 35 chars, fits 80mm at font 8
   doc.text(
-    `${"Item".padEnd(20)}${"Qty".padStart(4)}${"Rate".padStart(7)}${"Disc".padStart(5)}${"Total".padStart(7)}`,
+    `${"Item".padEnd(16)}${"Qty".padStart(3)}${"Rate".padStart(6)}${"Disc".padStart(5)}${"Total".padStart(7)}`,
     2, y
   );
-  y += 3;
+  y += 4;
   doc.setFont("courier", "normal");
-  doc.text("----------------------------------------", 0, y); y += 6;
+  doc.text("----------------------------------------", 0, y); y += 5;
 
   cart.forEach((item) => {
     const itemDiscount = Number(item.itemDiscount || 0);
     const netItemTotal = item.total - itemDiscount;
-    const name = item.name.length > 13 ? item.name.slice(0, 13) : item.name;
+    const name = item.name.length > 14 ? item.name.slice(0, 14) : item.name;
     const mrp = Number(item.mrp || item.price || 0);
     const price = Number(item.price || 0);
 
-    // main item row
+    doc.setFontSize(9);
+    doc.setLineHeightFactor(0.9)
     doc.text(
-      `${name.padEnd(20)}${String(item.qty).padStart(4)}${price.toFixed(0).padStart(7)}${itemDiscount.toFixed(0).padStart(5)}${netItemTotal.toFixed(0).padStart(7)}`,
+      `${name.padEnd(14)}${String(item.qty).padStart(4)}${price.toFixed(0).padStart(6)}${itemDiscount.toFixed(0).padStart(4)}${netItemTotal.toFixed(0).padStart(7)}`,
       2, y
     );
     y += 6;
 
-    // show MRP below if different from selling price
     if (mrp > price) {
-      doc.setFontSize(7);
+      doc.setFontSize(7.5);
       doc.text(`  MRP: Rs.${mrp.toFixed(2)}  (Save Rs.${(mrp - price).toFixed(2)})`, 2, y);
-      doc.setFontSize(8);
-      y += 6;
+      y += 5.5;
     }
 
-    // show variant label if present
     if (item.selectedVariant && item.selectedVariant !== "Custom") {
-      doc.setFontSize(7);
+      doc.setFontSize(7.5);
       doc.text(`  (${item.selectedVariant})`, 0, y);
-      doc.setFontSize(8);
-      y += 3;
+      y += 3.5;
     }
   });
 
+  doc.setFontSize(9);
   doc.text("----------------------------------------", 0, y); y += 6;
 
   // ─── SUMMARY ──────────────────────────────────────────
-  doc.setFont("courier", "bold"); doc.setFontSize(9);
+  doc.setFont("courier", "bold"); doc.setFontSize(10);
 
   const subtotal = getTotal();
   const netTotal = subtotal - finalDiscount;
 
-  // subtotal
   doc.setFont("courier", "normal");
   doc.text(`Subtotal     :`, 2, y);
-  doc.text(`Rs.${subtotal.toFixed(2)}`, 76, y, { align: "right" }); y += 5;
+  doc.text(`Rs.${subtotal.toFixed(2)}`, 76, y, { align: "right" }); y += 5.5;
 
-  // bill-level discount (from short payment)
   if (finalDiscount > 0) {
     doc.text(`Discount     :`, 2, y);
-    doc.text(`-Rs.${finalDiscount.toFixed(2)}`, 76, y, { align: "right" }); y += 5;
+    doc.text(`-Rs.${finalDiscount.toFixed(2)}`, 76, y, { align: "right" }); y += 5.5;
     doc.setFont("courier", "bold");
     doc.text(`Net Total    :`, 2, y);
-    doc.text(`Rs.${netTotal.toFixed(2)}`, 76, y, { align: "right" }); y += 5;
+    doc.text(`Rs.${netTotal.toFixed(2)}`, 76, y, { align: "right" }); y += 5.5;
     doc.setFont("courier", "normal");
   }
 
-  // payment mode
   doc.text(`Payment Mode :`, 2, y);
-  doc.text(paymentMode.toUpperCase(), 76, y, { align: "right" }); y += 5;
+  doc.text(paymentMode.toUpperCase(), 76, y, { align: "right" }); y += 5.5;
 
-  // paid amount (not for udhar)
   if (paymentMode !== "udhar") {
     doc.text(`Paid Amount  :`, 2, y);
-    doc.text(`Rs.${Number(paidAmount || 0).toFixed(2)}`, 76, y, { align: "right" }); y += 5;
+    doc.text(`Rs.${Number(paidAmount || 0).toFixed(2)}`, 76, y, { align: "right" }); y += 5.5;
   }
 
-  // change
   if (changeAmount > 0) {
     doc.text(`Change       :`, 2, y);
-    doc.text(`Rs.${changeAmount.toFixed(2)}`, 76, y, { align: "right" }); y += 5;
+    doc.text(`Rs.${changeAmount.toFixed(2)}`, 76, y, { align: "right" }); y += 5.5;
   }
 
-  // ✅ udhar only shown for split mode
   if (paymentMode === "split" && udharAmount > 0) {
     doc.setFont("courier", "bold");
     doc.text(`Udhar (Due)  :`, 2, y);
     doc.text(`Rs.${udharAmount.toFixed(2)}`, 76, y, { align: "right" });
     doc.setFont("courier", "normal");
-    y += 5;
+    y += 5.5;
   }
 
-  // full udhar — just show the total as due
   if (paymentMode === "udhar") {
     doc.setFont("courier", "bold");
     doc.text(`Amount Due   :`, 2, y);
     doc.text(`Rs.${netTotal.toFixed(2)}`, 76, y, { align: "right" });
     doc.setFont("courier", "normal");
-    y += 5;
+    y += 5.5;
   }
 
+  doc.setFontSize(9);
   doc.text("----------------------------------------", 0, y); y += 6;
 
   // ─── FOOTER ───────────────────────────────────────────
-  doc.setFont("courier", "bold"); doc.setFontSize(9);
-  doc.text("Thank you for shopping!", 40, y, { align: "center" }); y += 5;
-  doc.setFont("courier", "normal"); doc.setFontSize(8);
-  doc.text("Visit Again !", 40, y, { align: "center" }); y += 8;
+  doc.setFont("courier", "bold"); doc.setFontSize(10);
+  doc.text("Thank you for shopping!", 40, y, { align: "center" }); y += 5.5;
+  doc.setFont("courier", "normal"); doc.setFontSize(9);
+  doc.text("Visit Again !", 40, y, { align: "center" });
 
-  // ─── QR CODE ──────────────────────────────────────────
-  try {
-    // QR points to WhatsApp for reorders — change URL to whatever you prefer
-    const qrUrl = "https://wa.me/919506280968?text=Hi%20KiranaNeeds%2C%20I%20want%20to%20place%20an%20order";
-    const qrDataUrl = await QRCode.default.toDataURL(qrUrl, {
-      width: 200,
-      margin: 1,
-      color: { dark: "#000000", light: "#ffffff" },
-    });
-    const qrSize = 28; // mm
-    const qrX = (80 - qrSize) / 2; // centered on 80mm paper
-    doc.addImage(qrDataUrl, "PNG", qrX, y, qrSize, qrSize);
-    y += qrSize + 2;
-    doc.setFontSize(7);
-    doc.text("Scan to reorder on WhatsApp", 40, y, { align: "center" });
-    y += 3;
-    doc.text("www.kirananeeds.com", 40, y, { align: "center" });
-  } catch (qrErr) {
-    console.warn("QR generation failed:", qrErr);
-  }
-
-  doc.save(`${customerName || "Guest" +" "+"KiranaNeeds_Bill.pdf"}`);
+  doc.save(`${customerName || "Guest" + " " + "KiranaNeeds_Bill.pdf"}`);
 };
 
   const finalizePayment = useCallback(async (finalDiscount = 0) => {
@@ -679,10 +704,10 @@ const generateInvoice = async (finalDiscount = 0) => {
           <tr>
             <th className="p-2">Item</th>
             <th className="p-2 text-center">Qty</th>
-            <th className="p-2 text-right">CP / Price</th>
-            <th className="p-2 text-right">Disc</th>
+            <th className="p-2 text-center">CP / Price</th>
+            <th className="p-2 text-center">Disc</th>
             <th className="p-2 text-right">Total</th>
-            <th className="p-2"></th>
+            <th className="p-2">Action</th>
           </tr>
         </thead>
         <tbody>
@@ -714,20 +739,20 @@ const generateInvoice = async (finalDiscount = 0) => {
                     </div>
                   </td>
                   {/* qty */}
-                  <td className="p-2">
+                  <td className="p-2 text-center">
                     <input type="number" min="1" value={item.qty}
                       onChange={(e) => updateQty(originalIndex, Number(e.target.value))}
                       className="w-12 p-1 rounded bg-gray-700 text-white text-sm text-center" />
                   </td>
                   {/* ✅ CP + price */}
-                  <td className="p-2 text-right">
+                  <td className="p-2 text-center">
                     <div className="text-white text-sm">₹{item.price}</div>
                     {item.cp > 0 && (
                       <div className="text-xs text-gray-400">CP ₹{item.cp}</div>
                     )}
                   </td>
                   {/* ✅ item-level discount */}
-                  <td className="p-2">
+                  <td className="p-2 text-center">
                     <input
                       type="number"
                       min="0"
