@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, Suspense,useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { getCustomers, getOrders, getAllUdharPayments, getAllManualUdhar } from "@/app/utils/storage";
+import { getCustomers, getOrders, getAllUdharPayments, getAllManualUdhar, pullLedgerData  } from "@/app/utils/storage";
 import CustomerAccount from "@/app/components/CustomerAccount";
 
 function CustomerLedgerContent() {
@@ -28,14 +28,16 @@ function CustomerLedgerContent() {
     }
   }, [searchParams, rows]);
 
-  const loadLedger = async () => {
+ const loadLedger = async () => {
   setLoading(true);
+
+  await pullLedgerData(); // ✅ pull latest from Supabase first, if online
 
   const [customers, orders, payments, manualUdhar] = await Promise.all([
     getCustomers(),
     getOrders(),
     getAllUdharPayments(),
-    getAllManualUdhar(), // ✅ new
+    getAllManualUdhar(),
   ]);
 
   const summary = customers.map((c) => {

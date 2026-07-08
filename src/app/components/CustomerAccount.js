@@ -152,7 +152,7 @@ const sendUdharReminder = () => {
         ) : (
           <>
             {/* STAT CARDS */}
-            <div className="grid grid-cols-2 gap-3 px-5 py-4 border-b">
+            <div className="grid grid-cols-4 gap-3 px-5 py-4 border-b">
               <div className="bg-purple-50 rounded-xl p-3 text-center">
                 <p className="text-xs text-gray-400">Total Orders</p>
                 <p className="text-2xl font-bold text-purple-700">{totalOrders}</p>
@@ -176,18 +176,19 @@ const sendUdharReminder = () => {
                 <p className={`text-2xl font-bold ${udharRemaining > 0 ? "text-red-500" : "text-green-600"}`}>
                   ₹{udharRemaining.toFixed(0)}
                 </p>
-                {/* ✅ Send udhar balance on WhatsApp, anytime, on demand */}
-                  <div className="px-5 pt-1">
-                    <button onClick={sendUdharReminder}
-                      className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2">
-                      📩 Send on Whatsapp
-                    </button>
-                  </div>
+               
                 {udharRemaining <= 0 && (
                   <p className="text-[10px] text-green-500">All clear ✅</p>
                 )}
               </div>
             </div>
+             {/* ✅ Send udhar balance on WhatsApp, anytime, on demand */}
+                  <div className="px-5 pt-1">
+                    <button onClick={sendUdharReminder}
+                      className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2">
+                      📩 Send Udhar Reminder on Whatsapp
+                    </button>
+                  </div>
 
             {/* ✅ ADD UDHAR + REPAY SECTION */}
             <div className="px-5 py-3 border-b bg-orange-50 space-y-3">
@@ -228,7 +229,11 @@ const sendUdharReminder = () => {
                   <p className="text-xs font-semibold text-orange-700 mb-2">
                     Record Repayment (₹{udharRemaining.toFixed(0)} remaining)
                   </p>
-                  <div className="flex gap-2 mb-2">
+                  <input type="text" value={repayNote}
+                    onChange={(e) => setRepayNote(e.target.value)}
+                    placeholder="Note (optional, e.g. paid via UPI)"
+                    className="w-full border rounded-lg px-3 py-2 text-sm" />
+                  <div className="flex gap-2 mt-2">
                     <input type="number" value={repayAmount}
                       onChange={(e) => setRepayAmount(e.target.value)}
                       placeholder="Amount"
@@ -238,10 +243,7 @@ const sendUdharReminder = () => {
                       Record
                     </button>
                   </div>
-                  <input type="text" value={repayNote}
-                    onChange={(e) => setRepayNote(e.target.value)}
-                    placeholder="Note (optional, e.g. paid via UPI)"
-                    className="w-full border rounded-lg px-3 py-2 text-sm" />
+                  
                 </div>
               )}
             </div>

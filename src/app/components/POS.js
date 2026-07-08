@@ -928,12 +928,12 @@ const generateInvoice = async (finalDiscount = 0) => {
 
       {/* HEADER */}
       <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700">
-        <span className="font-semibold text-lg">KiranaNeeds POS</span>
+        <span className="font-semibold text-lg">POS</span>
         <div className="flex items-center gap-2">
           <SyncStatus />
 
           {/* ✅ item count + profit in header */}
-          {cart.length > 0 && (
+          {/* {cart.length > 0 && (
             <div className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-xs flex gap-3 items-center">
               <span className="text-cyan-400 font-bold">{getTotalQty()} items</span>
               <span className="text-gray-500">|</span>
@@ -942,14 +942,14 @@ const generateInvoice = async (finalDiscount = 0) => {
               </span>
               <span className="text-gray-400">{getMargin()}%</span>
             </div>
-          )}
+          )} */}
 
           <button onClick={() => window.open("https://www.kirananeeds.com/admin/products", "_blank")}
-            className="text-md bg-blue-600 px-2 py-1 rounded">+ Item</button>
+            className="text-sm md:text-md bg-blue-600 px-2 py-1 rounded">+ Item</button>
           <button onClick={() => setShowCustomersModal(true)}
-            className="text-md bg-blue-600 px-2 py-1 rounded">+ Customer (F5)</button>
+            className="text-sm md:text-md bg-blue-600 px-2 py-1 rounded">+ Customer (F5)</button>
           <button onClick={() => window.open("/customer-ledger", "_blank")}
-            className="text-md bg-purple-600 px-2 py-1 rounded">Ledger</button>
+            className="text-sm md:text-md bg-purple-600 px-2 py-1 rounded">Ledger</button>
         </div>
       </div>
 

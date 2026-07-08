@@ -268,3 +268,55 @@ export const saveCategory = (category) => {
     localStorage.setItem(CATEGORY_KEY, JSON.stringify(updated));
   }
 };
+
+
+/* =========================================================
+   LEDGER SYNC (pull latest before reading, when online)
+========================================================= */
+
+export const pullLedgerData = async () => {
+  if (!navigator.onLine) return; // stay offline-safe, just read local as-is
+
+  const db = await getDB();
+
+  try {
+    const [
+      { data: customers },
+      { data: orders },
+      { data: udharPayments },
+      { data: manualUdhar },
+    ] = await Promise.all([
+      supabase.from("customers").select("*"),
+      supabase.from("orders").select("*"),
+      supabase.from("udhar_payments").select("*"),
+      supabase.from("manual_udhar").select("*"),
+    ]);
+
+    const puts = [];
+    if (customers) {
+      const tx = db.transaction("customers", "readwrite");
+      customers.forEach((c) => puts.push(tx.store.put(c)));
+      puts.push(tx.done);
+    }
+    if (orders) {
+      const tx = db.transaction("orders", "readwrite");
+      orders.forEach((o) => puts.push(tx.store.put(o)));
+      puts.push(tx.done);
+    }
+    if (udharPayments) {
+      const tx = db.transaction("udharPayments", "readwrite");
+      udharPayments.forEach((p) => puts.push(tx.store.put(p)));
+      puts.push(tx.done);
+    }
+    if (manualUdhar) {
+      const tx = db.transaction("manualUdhar", "readwrite");
+      manualUdhar.forEach((m) => puts.push(tx.store.put(m)));
+      puts.push(tx.done);
+    }
+
+    await Promise.all(puts);
+  } catch (err) {
+    console.error("Ledger pull sync error:", err);
+    // fail silently — local (possibly stale) data still shown
+  }
+};
