@@ -1,10 +1,11 @@
 "use client";
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense,useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { getCustomers, getOrders, getAllUdharPayments } from "@/app/utils/storage";
+import { getCustomers, getOrders, getAllUdharPayments, getAllManualUdhar } from "@/app/utils/storage";
 import CustomerAccount from "@/app/components/CustomerAccount";
 
 function CustomerLedgerContent() {
+  const autoOpenedRef = useRef(null);
   const searchParams = useSearchParams();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -12,66 +13,73 @@ function CustomerLedgerContent() {
   const [search, setSearch] = useState("");
   const [filterUdhar, setFilterUdhar] = useState(false);
 
+  
   useEffect(() => { loadLedger(); }, []);
 
   // auto-open customer if ?id= passed from billing history
-  useEffect(() => {
+ useEffect(() => {
     const id = searchParams.get("id");
-    if (id && rows.length > 0) {
+    if (id && rows.length > 0 && autoOpenedRef.current !== id) { // ✅ guard
       const found = rows.find((r) => r.id === id);
-      if (found) setSelected(found);
+      if (found) {
+        setSelected(found);
+        autoOpenedRef.current = id; // ✅ mark as handled
+      }
     }
   }, [searchParams, rows]);
 
   const loadLedger = async () => {
-    setLoading(true);
+  setLoading(true);
 
-    // ✅ all from IndexedDB — works offline
-    const [customers, orders, payments] = await Promise.all([
-      getCustomers(),
-      getOrders(),
-      getAllUdharPayments(),
-    ]);
+  const [customers, orders, payments, manualUdhar] = await Promise.all([
+    getCustomers(),
+    getOrders(),
+    getAllUdharPayments(),
+    getAllManualUdhar(), // ✅ new
+  ]);
 
-    const summary = customers.map((c) => {
-      const custOrders = orders.filter((o) => o.customer_id === c.id);
-      const custPayments = payments.filter((p) => p.customer_id === c.id);
+  const summary = customers.map((c) => {
+    const custOrders = orders.filter((o) => o.customer_id === c.id);
+    const custPayments = payments.filter((p) => p.customer_id === c.id);
+    const custManualUdhar = manualUdhar.filter((m) => m.customer_id === c.id); // ✅ new
 
-      const totalBilled = custOrders.reduce(
-        (sum, o) => sum + Number(o.total || 0) - Number(o.discount || 0), 0
-      );
-      const totalUdharGiven = custOrders
-        .filter((o) => o.status === "udhar" || o.status === "split")
-        .reduce((sum, o) => sum + Number(o.total || 0) - Number(o.discount || 0), 0);
-      const totalUdharPaidBack = custPayments.reduce(
-        (sum, p) => sum + Number(p.amount || 0), 0
-      );
-      const totalProfit = custOrders.reduce((sum, o) => {
-        const gross = (o.items || []).reduce((s, item) =>
-          s + (Number(item.price || 0) - Number(item.cp || 0)) * Number(item.qty || 1), 0
-        );
-        return sum + gross - Number(o.discount || 0);
-      }, 0);
-      const lastOrder = custOrders[0];
-
-      return {
-        ...c,
-        totalOrders: custOrders.length,
-        totalBilled,
-        totalProfit,
-        udharRemaining: totalUdharGiven - totalUdharPaidBack,
-        lastOrderDate: lastOrder?.created_at || null,
-      };
-    });
-
-    // sort: udhar pending first, then by total billed
-    summary.sort(
-      (a, b) => b.udharRemaining - a.udharRemaining || b.totalBilled - a.totalBilled
+    const totalBilled = custOrders.reduce(
+      (sum, o) => sum + Number(o.total || 0) - Number(o.discount || 0), 0
     );
+    const totalUdharGiven = custOrders
+      .filter((o) => o.status === "udhar" || o.status === "split")
+      .reduce((sum, o) => sum + Number(o.total || 0) - Number(o.discount || 0), 0);
+    const totalManualUdharGiven = custManualUdhar.reduce(
+      (sum, m) => sum + Number(m.amount || 0), 0
+    ); // ✅ new
+    const totalUdharPaidBack = custPayments.reduce(
+      (sum, p) => sum + Number(p.amount || 0), 0
+    );
+    const totalProfit = custOrders.reduce((sum, o) => {
+      const gross = (o.items || []).reduce((s, item) =>
+        s + (Number(item.price || 0) - Number(item.cp || 0)) * Number(item.qty || 1), 0
+      );
+      return sum + gross - Number(o.discount || 0);
+    }, 0);
+    const lastOrder = custOrders[0];
 
-    setRows(summary);
-    setLoading(false);
-  };
+    return {
+      ...c,
+      totalOrders: custOrders.length,
+      totalBilled,
+      totalProfit,
+      udharRemaining: totalUdharGiven + totalManualUdharGiven - totalUdharPaidBack, // ✅ updated
+      lastOrderDate: lastOrder?.created_at || null,
+    };
+  });
+
+  summary.sort(
+    (a, b) => b.udharRemaining - a.udharRemaining || b.totalBilled - a.totalBilled
+  );
+
+  setRows(summary);
+  setLoading(false);
+};
 
   const filtered = rows.filter((r) => {
     const matchSearch =
@@ -241,9 +249,9 @@ function CustomerLedgerContent() {
           name={selected.name}
           phone={selected.mobile}
           onClose={() => {
-            setSelected(null);
-            loadLedger();
-          }}
+      setSelected(null);
+      loadLedger();
+    }}
         />
       )}
     </div>

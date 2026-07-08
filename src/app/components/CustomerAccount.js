@@ -1,13 +1,23 @@
 "use client";
 import { useState, useEffect } from "react";
-import { getOrdersByCustomer, getUdharPaymentsByCustomer, saveUdharPayment } from "@/app/utils/storage";
+import {
+  getOrdersByCustomer,
+  getUdharPaymentsByCustomer,
+  saveUdharPayment,
+  getManualUdharByCustomer, // ✅ new
+  saveManualUdhar,          // ✅ new
+} from "@/app/utils/storage";
 import { toast } from "react-toastify";
 
 export default function CustomerAccount({ customerId, name, phone, isOpen, onClose }) {
   const [orders, setOrders] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [manualUdhar, setManualUdhar] = useState([]); // ✅ new
   const [repayAmount, setRepayAmount] = useState("");
   const [repayNote, setRepayNote] = useState("");
+  const [udharAmount, setUdharAmount] = useState("");       // ✅ new
+  const [udharComment, setUdharComment] = useState("");      // ✅ new
+  const [showAddUdhar, setShowAddUdhar] = useState(false);   // ✅ new
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
 
@@ -16,18 +26,41 @@ export default function CustomerAccount({ customerId, name, phone, isOpen, onClo
     loadAccount();
   }, [isOpen, customerId]);
 
+  // send udha ron whatsapp
+ const openWhatsApp = (phoneNumber, message) => {
+  if (!phoneNumber) {
+    toast.warning("No mobile number saved for this customer");
+    return;
+  }
+  let clean = phoneNumber.replace(/\D/g, "");
+  if (clean.length === 10) clean = "91" + clean; // adjust country code if needed
+  const url = `https://wa.me/${clean}?text=${encodeURIComponent(message)}`;
+  window.open(url, "_blank");
+};
+
+const sendUdharReminder = () => {
+  const msg = udharRemaining > 0
+    ? `नमस्ते ${name}, आपका उधार बैलेंस रु${udharRemaining.toFixed(2)} है। कृपया  शीघ्र भुगतान करें। धन्यवाद! - किरानानीड्स स्टोर`
+    : `नमस्ते ${name}, आपका कोई उधार बाकी नहीं है। सब क्लियर है ✅ - किरानानीड्स स्टोर`;
+  openWhatsApp(phone, msg);
+};
+// -----------------------------
+
+
+
   const loadAccount = async () => {
     setLoading(true);
-    const [orderData, paymentData] = await Promise.all([
-      getOrdersByCustomer(customerId),      // ✅ IndexedDB
-      getUdharPaymentsByCustomer(customerId), // ✅ IndexedDB
+    const [orderData, paymentData, manualUdharData] = await Promise.all([
+      getOrdersByCustomer(customerId),
+      getUdharPaymentsByCustomer(customerId),
+      getManualUdharByCustomer(customerId), // ✅ new
     ]);
     setOrders(orderData);
     setPayments(paymentData);
+    setManualUdhar(manualUdharData); // ✅ new
     setLoading(false);
   };
 
-  // ─── PROFIT HELPERS ─────────────────────────────────────
   const calcBillProfit = (order) => {
     const gross = (order.items || []).reduce((sum, item) => {
       return sum + (Number(item.price || 0) - Number(item.cp || 0)) * Number(item.qty || 1);
@@ -35,7 +68,6 @@ export default function CustomerAccount({ customerId, name, phone, isOpen, onClo
     return gross - Number(order.discount || 0);
   };
 
-  // ─── STATS ──────────────────────────────────────────────
   const totalOrders = orders.length;
   const totalBilled = orders.reduce(
     (sum, o) => sum + Number(o.total || 0) - Number(o.discount || 0), 0
@@ -47,24 +79,55 @@ export default function CustomerAccount({ customerId, name, phone, isOpen, onClo
   const totalUdharGiven = orders
     .filter((o) => o.status === "udhar" || o.status === "split")
     .reduce((sum, o) => sum + Number(o.total || 0) - Number(o.discount || 0), 0);
+  const totalManualUdharGiven = manualUdhar.reduce(
+    (sum, m) => sum + Number(m.amount || 0), 0
+  ); // ✅ new
   const totalUdharPaidBack = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-  const udharRemaining = totalUdharGiven - totalUdharPaidBack;
+  const udharRemaining = totalUdharGiven + totalManualUdharGiven - totalUdharPaidBack; // ✅ updated
 
   const recordRepayment = async () => {
-    if (!repayAmount || Number(repayAmount) <= 0) {
-      toast.error("Enter a valid amount"); return;
-    }
-    await saveUdharPayment({   // ✅ IndexedDB + queue sync
-      customer_id: customerId,
-      customer_phone: phone,
-      customer_name: name,
-      amount: Number(repayAmount),
-      note: repayNote.trim() || null,
-    });
-    toast.success("Payment recorded ✅");
-    setRepayAmount(""); setRepayNote("");
-    loadAccount();
-  };
+  if (!repayAmount || Number(repayAmount) <= 0) {
+    toast.error("Enter a valid amount"); return;
+  }
+  await saveUdharPayment({
+    customer_id: customerId,
+    customer_phone: phone,
+    customer_name: name,
+    amount: Number(repayAmount),
+    note: repayNote.trim() || null,
+  });
+
+  const newRemaining = udharRemaining - Number(repayAmount);
+  const msg = `Namaste ${name}, aapne Rs.${Number(repayAmount).toFixed(2)} udhar chukaya hai. Baaki udhar: Rs.${newRemaining.toFixed(2)}. Dhanyawad! - KiranaNeeds Store`;
+  openWhatsApp(phone, msg);
+
+  toast.success("Payment recorded ✅");
+  setRepayAmount(""); setRepayNote("");
+  loadAccount();
+};
+
+  // ✅ new — record off-books udhar given
+ const recordManualUdhar = async () => {
+  if (!udharAmount || Number(udharAmount) <= 0) {
+    toast.error("Enter a valid amount"); return;
+  }
+  await saveManualUdhar({
+    customer_id: customerId,
+    customer_phone: phone,
+    customer_name: name,
+    amount: Number(udharAmount),
+    comment: udharComment.trim() || "Cash given",
+  });
+
+  const newRemaining = udharRemaining + Number(udharAmount);
+  const msg = `Namaste ${name}, aapko Rs.${Number(udharAmount).toFixed(2)} udhar diya gaya hai (${udharComment.trim() || "Cash given"}). Baaki udhar: Rs.${newRemaining.toFixed(2)}. - KiranaNeeds Store`;
+  openWhatsApp(phone, msg);
+
+  toast.success("Udhar recorded ✅");
+  setUdharAmount(""); setUdharComment("");
+  setShowAddUdhar(false);
+  loadAccount();
+};
 
   if (!isOpen) return null;
 
@@ -113,38 +176,79 @@ export default function CustomerAccount({ customerId, name, phone, isOpen, onClo
                 <p className={`text-2xl font-bold ${udharRemaining > 0 ? "text-red-500" : "text-green-600"}`}>
                   ₹{udharRemaining.toFixed(0)}
                 </p>
+                {/* ✅ Send udhar balance on WhatsApp, anytime, on demand */}
+                  <div className="px-5 pt-1">
+                    <button onClick={sendUdharReminder}
+                      className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2">
+                      📩 Send on Whatsapp
+                    </button>
+                  </div>
                 {udharRemaining <= 0 && (
                   <p className="text-[10px] text-green-500">All clear ✅</p>
                 )}
               </div>
             </div>
 
-            {/* REPAY SECTION */}
-            {udharRemaining > 0 && (
-              <div className="px-5 py-3 border-b bg-orange-50">
-                <p className="text-xs font-semibold text-orange-700 mb-2">
-                  💰 Record Udhar Payment (₹{udharRemaining.toFixed(0)} remaining)
+            {/* ✅ ADD UDHAR + REPAY SECTION */}
+            <div className="px-5 py-3 border-b bg-orange-50 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-orange-700">
+                  💰 Udhar Actions
                 </p>
-                <div className="flex gap-2 mb-2">
-                  <input type="number" value={repayAmount}
-                    onChange={(e) => setRepayAmount(e.target.value)}
-                    placeholder="Amount"
-                    className="flex-1 border rounded-lg px-3 py-2 text-sm" />
-                  <button onClick={recordRepayment}
-                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
-                    Record
-                  </button>
-                </div>
-                <input type="text" value={repayNote}
-                  onChange={(e) => setRepayNote(e.target.value)}
-                  placeholder="Note (optional, e.g. paid via UPI)"
-                  className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <button onClick={() => setShowAddUdhar(!showAddUdhar)}
+                  className="text-xs bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded-lg font-medium">
+                  {showAddUdhar ? "Cancel" : "+ Add Udhar"}
+                </button>
               </div>
-            )}
+
+              {showAddUdhar && (
+                <div className="bg-white rounded-lg p-3 border border-orange-200 space-y-2">
+                  <p className="text-[11px] text-gray-400">
+                    For cash/items given without a bill (not recorded in POS)
+                  </p>
+                  <div className="flex gap-2">
+                    <input type="number" value={udharAmount}
+                      onChange={(e) => setUdharAmount(e.target.value)}
+                      placeholder="Amount"
+                      className="flex-1 border rounded-lg px-3 py-2 text-sm" />
+                    <button onClick={recordManualUdhar}
+                      className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                      Add
+                    </button>
+                  </div>
+                  <input type="text" value={udharComment}
+                    onChange={(e) => setUdharComment(e.target.value)}
+                    placeholder="Comment (e.g. Cash given, Sugar given)"
+                    className="w-full border rounded-lg px-3 py-2 text-sm" />
+                </div>
+              )}
+
+              {udharRemaining > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-orange-700 mb-2">
+                    Record Repayment (₹{udharRemaining.toFixed(0)} remaining)
+                  </p>
+                  <div className="flex gap-2 mb-2">
+                    <input type="number" value={repayAmount}
+                      onChange={(e) => setRepayAmount(e.target.value)}
+                      placeholder="Amount"
+                      className="flex-1 border rounded-lg px-3 py-2 text-sm" />
+                    <button onClick={recordRepayment}
+                      className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                      Record
+                    </button>
+                  </div>
+                  <input type="text" value={repayNote}
+                    onChange={(e) => setRepayNote(e.target.value)}
+                    placeholder="Note (optional, e.g. paid via UPI)"
+                    className="w-full border rounded-lg px-3 py-2 text-sm" />
+                </div>
+              )}
+            </div>
 
             {/* TABS */}
             <div className="flex border-b">
-              {["overview", "orders", "repayments"].map((tab) => (
+              {["overview", "orders", "udhar", "repayments"].map((tab) => (
                 <button key={tab} onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-2 text-xs font-medium capitalize ${
                     activeTab === tab
@@ -152,6 +256,7 @@ export default function CustomerAccount({ customerId, name, phone, isOpen, onClo
                       : "text-gray-400"
                   }`}>
                   {tab === "orders" ? `Orders (${totalOrders})` :
+                   tab === "udhar" ? `Udhar (${manualUdhar.length})` :
                    tab === "repayments" ? `Repayments (${payments.length})` :
                    "Overview"}
                 </button>
@@ -168,7 +273,8 @@ export default function CustomerAccount({ customerId, name, phone, isOpen, onClo
                     { label: "Total Profit from Customer", value: `₹${totalProfit.toFixed(2)}`, color: totalProfit >= 0 ? "text-blue-600" : "text-red-500" },
                     { label: "Avg Profit Margin", value: `${avgMargin}%`, color: "text-blue-500" },
                     { label: "Total Discounts Given", value: `₹${totalDiscounts.toFixed(2)}`, color: "text-red-400" },
-                    { label: "Total Udhar Given", value: `₹${totalUdharGiven.toFixed(2)}`, color: "text-orange-600" },
+                    { label: "Udhar from Bills", value: `₹${totalUdharGiven.toFixed(2)}`, color: "text-orange-600" },
+                    { label: "Udhar Given Manually", value: `₹${totalManualUdharGiven.toFixed(2)}`, color: "text-orange-600" }, // ✅ new
                     { label: "Total Paid Back", value: `₹${totalUdharPaidBack.toFixed(2)}`, color: "text-green-600" },
                     { label: "Udhar Remaining", value: `₹${udharRemaining.toFixed(2)}`, color: udharRemaining > 0 ? "text-red-500" : "text-green-600" },
                     { label: "Completed Orders", value: orders.filter(o => o.status === "completed").length, color: "text-gray-800" },
@@ -223,6 +329,36 @@ export default function CustomerAccount({ customerId, name, phone, isOpen, onClo
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {/* ✅ new tab */}
+              {activeTab === "udhar" && (
+                <div className="space-y-2">
+                  {manualUdhar.length === 0 ? (
+                    <p className="text-gray-400 text-sm text-center py-6">
+                      No manual udhar recorded
+                    </p>
+                  ) : manualUdhar.map((m) => (
+                    <div key={m.id}
+                      className="border rounded-lg px-3 py-2 text-sm flex justify-between items-center">
+                      <div>
+                        <p className="text-xs text-gray-400">
+                          {new Date(m.given_at).toLocaleDateString("en-IN", {
+                            day: "2-digit", month: "short", year: "numeric",
+                          })}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-0.5">{m.comment}</p>
+                      </div>
+                      <p className="font-bold text-orange-600">+₹{Number(m.amount).toFixed(2)}</p>
+                    </div>
+                  ))}
+                  {manualUdhar.length > 0 && (
+                    <div className="border-t pt-2 flex justify-between text-sm font-semibold">
+                      <span>Total Manual Udhar</span>
+                      <span className="text-orange-600">₹{totalManualUdharGiven.toFixed(2)}</span>
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -1,7 +1,7 @@
 import { openDB } from "idb";
 
 const DB_NAME = "pos-db";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export const getDB = () =>
   openDB(DB_NAME, DB_VERSION, {
@@ -32,6 +32,12 @@ export const getDB = () =>
       if (!db.objectStoreNames.contains("udharPayments")) {
         const us = db.createObjectStore("udharPayments", { keyPath: "id" });
         us.createIndex("customer_id", "customer_id");
+      }
+
+      // ── V3 STORES ───────────────────────────────────────
+      if (!db.objectStoreNames.contains("manualUdhar")) {
+        const mu = db.createObjectStore("manualUdhar", { keyPath: "id" });
+        mu.createIndex("customer_id", "customer_id");
       }
     },
 

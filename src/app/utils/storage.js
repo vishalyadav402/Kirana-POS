@@ -186,6 +186,50 @@ export const saveUdharPayment = async (data) => {
   return record;
 };
 
+/* =========================================================
+   MANUAL UDHAR (off-books credit given without a bill)
+========================================================= */
+
+// Record a manual udhar entry — locally first, queue Supabase sync
+export const saveManualUdhar = async (data) => {
+  const db = await getDB();
+  const record = {
+    ...data,
+    id: generateId(),
+    given_at: data.given_at || new Date().toISOString(),
+  };
+
+  await db.put("manualUdhar", record);
+
+  if (navigator.onLine) {
+    const { error } = await supabase.from("manual_udhar").upsert([record], {
+      onConflict: "id",
+    });
+    if (error) {
+      console.error("Supabase manual udhar sync error:", error);
+      await enqueue("insert", "manual_udhar", record, "id");
+    }
+  } else {
+    await enqueue("insert", "manual_udhar", record, "id");
+  }
+
+  return record;
+};
+
+// Get manual udhar entries for a specific customer
+export const getManualUdharByCustomer = async (customerId) => {
+  const db = await getDB();
+  const index = db.transaction("manualUdhar").store.index("customer_id");
+  const all = await index.getAll(customerId);
+  return all.sort((a, b) => new Date(b.given_at) - new Date(a.given_at));
+};
+
+// Get all manual udhar entries (for ledger totals)
+export const getAllManualUdhar = async () => {
+  const db = await getDB();
+  return db.getAll("manualUdhar");
+};
+
 // Get all repayments for a customer
 export const getUdharPaymentsByCustomer = async (customerId) => {
   const db = await getDB();
