@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { getOrders } from "@/app/utils/storage";
+import { printInvoiceFromBill } from "@/app/utils/printInvoice"; // adjust path to match your project structure
 
 export default function BillingHistory() {
   const [bills, setBills] = useState([]);
@@ -316,7 +317,13 @@ export default function BillingHistory() {
                         </div>
                       )}
                     </div>
+                    <button
+                      onClick={() => printInvoiceFromBill(bill)}
+                      className="mt-2 w-full text-xs bg-blue-50 border border-blue-200 text-blue-700 py-1.5 rounded-md hover:bg-blue-100">
+                      🖨 Print Bill
+                    </button>
 
+                    
                     {bill.customer_id && (
                       <button
                         onClick={() => window.open(`/customer-ledger?id=${bill.customer_id}`, "_blank")}
