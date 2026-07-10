@@ -64,7 +64,7 @@ export default function SyncStatus() {
       onClick={handleSync}
       disabled={syncing || !isOnline}
       title={isOnline ? "Click to sync now" : "Offline — working locally"}
-      className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full transition-all
+      className={`flex items-center gap-1.5 text-xs md:text-sm px-2 py-1 rounded-full transition-all
         ${isOnline
           ? "bg-green-700 hover:bg-green-600 text-white"
           : "bg-red-700 text-white cursor-not-allowed"

@@ -86,6 +86,13 @@ export const pullFromSupabase = async (table, storeName, queryFn) => {
   }
 };
 
+// utils/sync.js
+export const startAutoSync = () => {
+  window.addEventListener("online", () => {
+    console.log("Back online — syncing queued orders");
+    syncAll();
+  });
+};
 // ─── SYNC ALL ───────────────────────────────────────────
 export const syncAll = async () => {
   if (!navigator.onLine) return;

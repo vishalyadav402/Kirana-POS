@@ -9,7 +9,7 @@ import {
 } from "@/app/utils/storage";
 import { toast } from "react-toastify";
 
-export default function CustomerAccount({ customerId, name, phone, isOpen, onClose }) {
+export default function CustomerAccount({ customerId, name, address, phone, isOpen, onClose }) {
   const [orders, setOrders] = useState([]);
   const [payments, setPayments] = useState([]);
   const [manualUdhar, setManualUdhar] = useState([]); // ✅ new
@@ -63,7 +63,11 @@ const sendUdharReminder = () => {
 
   const calcBillProfit = (order) => {
     const gross = (order.items || []).reduce((sum, item) => {
-      return sum + (Number(item.price || 0) - Number(item.cp || 0)) * Number(item.qty || 1);
+      const cp = Number(item.cp || 0);
+      if (cp <= 0) return sum; // ✅ skip items with no CP entered — don't count price as profit
+      const price = Number(item.price || 0);
+      const qty = Number(item.qty || 1);
+      return sum + (price - cp) * qty;
     }, 0);
     return gross - Number(order.discount || 0);
   };
@@ -138,7 +142,7 @@ const sendUdharReminder = () => {
         {/* HEADER */}
         <div className="bg-purple-600 text-white px-5 py-4 rounded-t-2xl flex items-start justify-between">
           <div>
-            <p className="font-bold text-lg leading-tight">{name}</p>
+            <p className="font-bold text-lg leading-tight capitalize">{name} {address}</p>
             {phone && <p className="text-purple-200 text-sm mt-0.5">{phone}</p>}
           </div>
           <button onClick={onClose}
@@ -155,25 +159,25 @@ const sendUdharReminder = () => {
             <div className="grid grid-cols-4 gap-3 px-5 py-4 border-b">
               <div className="bg-purple-50 rounded-xl p-3 text-center">
                 <p className="text-xs text-gray-400">Total Orders</p>
-                <p className="text-2xl font-bold text-purple-700">{totalOrders}</p>
+                <p className="md:text-2xl text-md font-bold text-purple-700">{totalOrders}</p>
               </div>
               <div className="bg-green-50 rounded-xl p-3 text-center">
                 <p className="text-xs text-gray-400">Total Billed</p>
-                <p className="text-2xl font-bold text-green-700">₹{totalBilled.toFixed(0)}</p>
+                <p className="md:text-2xl text-md font-bold text-green-700">₹{totalBilled.toFixed(0)}</p>
                 {totalDiscounts > 0 && (
                   <p className="text-[10px] text-gray-400">₹{totalDiscounts.toFixed(0)} saved</p>
                 )}
               </div>
               <div className="bg-blue-50 rounded-xl p-3 text-center">
                 <p className="text-xs text-gray-400">Your Profit</p>
-                <p className={`text-2xl font-bold ${totalProfit >= 0 ? "text-blue-600" : "text-red-500"}`}>
+                <p className={`md:text-2xl text-md font-bold ${totalProfit >= 0 ? "text-blue-600" : "text-red-500"}`}>
                   ₹{totalProfit.toFixed(0)}
                 </p>
                 <p className="text-[10px] text-gray-400">{avgMargin}% margin</p>
               </div>
               <div className={`rounded-xl p-3 text-center ${udharRemaining > 0 ? "bg-red-50" : "bg-green-50"}`}>
                 <p className="text-xs text-gray-400">Udhar Left</p>
-                <p className={`text-2xl font-bold ${udharRemaining > 0 ? "text-red-500" : "text-green-600"}`}>
+                <p className={`md:text-2xl text-md font-bold ${udharRemaining > 0 ? "text-red-500" : "text-green-600"}`}>
                   ₹{udharRemaining.toFixed(0)}
                 </p>
                
@@ -191,7 +195,7 @@ const sendUdharReminder = () => {
                   </div>
 
             {/* ✅ ADD UDHAR + REPAY SECTION */}
-            <div className="px-5 py-3 border-b bg-orange-50 space-y-3">
+            <div className="px-5 py-3 border-b bg-white space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold text-orange-700">
                   💰 Udhar Actions

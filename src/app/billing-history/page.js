@@ -20,9 +20,10 @@ export default function BillingHistory() {
   };
 
   // ─── PROFIT HELPERS ─────────────────────────────────────
-  const calcBillProfit = (bill) => {
+ const calcBillProfit = (bill) => {
     const gross = (bill.items || []).reduce((sum, item) => {
       const cp = Number(item.cp || 0);
+      if (cp <= 0) return sum; // ✅ skip items with no CP
       const price = Number(item.price || 0);
       const qty = Number(item.qty || 1);
       return sum + (price - cp) * qty;
@@ -31,7 +32,9 @@ export default function BillingHistory() {
   };
 
   const calcItemProfit = (item) => {
-    return (Number(item.price || 0) - Number(item.cp || 0)) * Number(item.qty || 1);
+    const cp = Number(item.cp || 0);
+    if (cp <= 0) return 0; // ✅ no CP entered — don't count price as profit
+    return (Number(item.price || 0) - cp) * Number(item.qty || 1);
   };
 
   const calcItemMargin = (item) => {

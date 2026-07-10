@@ -49,8 +49,52 @@ export default function POS() {
   // ─── EFFECTS ────────────────────────────────────────────
 
   useEffect(() => setHighlightedCustomerIndex(0), [customerName]);
-  useEffect(() => { syncAll(); }, []);
+ useEffect(() => {
+  syncAll();
+  const handleOnline = () => syncAll();
+  window.addEventListener("online", handleOnline);
+  return () => window.removeEventListener("online", handleOnline);
+}, []);
 
+// ─── KEYBOARD ───────────────────────────────────────────
+
+  const handleKeyDown = (e) => {
+    if (e.key === "ArrowDown") setHighlightedIndex((prev) => prev < flatSuggestions.length - 1 ? prev + 1 : prev);
+    if (e.key === "ArrowUp") setHighlightedIndex((prev) => prev > 0 ? prev - 1 : 0);
+    if (e.key === "Enter" && flatSuggestions.length > 0) {
+      const { p, variant } = flatSuggestions[highlightedIndex] || flatSuggestions[0];
+      const price = Number(variant.price || 0);
+      const cp = Number(variant.cp || 0);
+      const label = variant.label || "Default";
+      setCart((prev) => {
+        const index = prev.findIndex(
+          (item) => item.id === p.id && item.selectedVariant === label
+        );
+        if (index !== -1) {
+          const updated = [...prev];
+          updated[index] = {
+            ...updated[index],
+            qty: updated[index].qty + 1,
+            total: (updated[index].qty + 1) * price,
+          };
+          return updated;
+        }
+        return [...prev, {
+          ...p,
+          selectedVariant: label,
+          price,
+          cp,
+          itemDiscount: 0,
+          qty: 1,
+          total: price,
+        }];
+      });
+      setSearch("");
+      setHighlightedIndex(0);
+      inputRef.current?.focus();
+    }
+  };
+  // ── Physical barcode scanner ───────────────────────────
   // ── Physical barcode scanner ───────────────────────────
   useEffect(() => {
     let barcode = "";
@@ -572,37 +616,37 @@ const generateInvoice = async (finalDiscount = 0) => {
     }
   }, [cart, paymentMode, paidAmount, customerName, finalizePayment]);
 
-  const confirmDiscountAndPay = async () => {
-    setShowDiscountConfirm(false);
-    await finalizePayment(pendingDiscount);
-  };
+    const confirmDiscountAndPay = async () => {
+      if (isProcessing.current) return;
+      setShowDiscountConfirm(false);
+      await finalizePayment(pendingDiscount);
+    };
 
   const cancelDiscountConfirm = () => {
     setShowDiscountConfirm(false);
     toast.error("Customer has not paid full amount!");
   };
 
-  // ─── KEYBOARD ───────────────────────────────────────────
+   const touchStartX = useRef(0);
+  const touchEndX = useRef(0);
 
-  const handleKeyDown = (e) => {
-    if (e.key === "ArrowDown") setHighlightedIndex((prev) => prev < flatSuggestions.length - 1 ? prev + 1 : prev);
-    if (e.key === "ArrowUp") setHighlightedIndex((prev) => prev > 0 ? prev - 1 : 0);
-    if (e.key === "Enter" && flatSuggestions.length > 0) {
-      const { p, variant } = flatSuggestions[highlightedIndex] || flatSuggestions[0];
-      const price = Number(variant.price || 0);
-      const cp = Number(variant.cp || 0);
-      setCart((prev) => [...prev, {
-        ...p,
-        selectedVariant: variant.label,
-        price,
-        cp,
-        itemDiscount: 0,
-        qty: 1,
-        total: price,
-      }]);
-      setSearch("");
-      setHighlightedIndex(0);
-      inputRef.current?.focus();
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = (e) => {
+    touchEndX.current = e.changedTouches[0].clientX;
+    const delta = touchEndX.current - touchStartX.current;
+    const SWIPE_THRESHOLD = 60; // px — tweak if too sensitive/insensitive
+
+    if (Math.abs(delta) < SWIPE_THRESHOLD) return; // not a real swipe, ignore
+
+    if (delta < 0 && activeTab === "cart") {
+      // swiped left → go to payment
+      setActiveTab("payment");
+    } else if (delta > 0 && activeTab === "payment") {
+      // swiped right → go to cart
+      setActiveTab("cart");
     }
   };
 
@@ -615,9 +659,9 @@ const generateInvoice = async (finalDiscount = 0) => {
       if (e.key === "F5") { e.preventDefault(); setShowCustomersModal(true); }
       if (e.key === "F6") { e.preventDefault(); setActiveTab("payment"); setTimeout(() => customerInputRef.current?.focus(), 50); }
       if (e.key === "F7") { e.preventDefault(); setActiveTab("payment"); setTimeout(() => paidAmountInputRef.current?.focus(), 50); }
-      if (e.key === "F8") { e.preventDefault(); completePayment(); }
+      if (e.key === "F8") { e.preventDefault(); if (!isProcessing.current) completePayment(); }
+      if (e.key === "s" && !isTyping) { if (!isProcessing.current) completePayment(); }
       if (e.key === "Delete" && !isTyping) { e.preventDefault(); setCart([]); localStorage.removeItem("posCart"); toast.info("Bill cleared"); }
-      if (e.key === "s" && !isTyping) completePayment();
       if (e.key === "Escape") {
         setShowQuickItemModal(false);
         setShowScanner(false);
@@ -629,6 +673,8 @@ const generateInvoice = async (finalDiscount = 0) => {
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
   }, [completePayment]);
+
+
 
   // ─── SHARED SECTIONS ────────────────────────────────────
 
@@ -654,21 +700,36 @@ const generateInvoice = async (finalDiscount = 0) => {
         <ul className="absolute z-10 bg-gray-700 border rounded w-full mt-1 max-h-96 overflow-y-auto shadow">
           {flatSuggestions.map(({ p, variant }, i) => (
             <li key={i}
-              onClick={() => {
-                const price = Number(variant.price || 0);
-                const cp = Number(variant.cp || 0);
-                setCart((prev) => [...prev, {
-                  ...p,
-                  selectedVariant: variant.label,
-                  price,
-                  cp,
-                  itemDiscount: 0,
-                  qty: 1,
-                  total: price,
-                }]);
-                setSearch(""); setHighlightedIndex(0);
-              }}
-              className={`px-3 py-2 cursor-pointer flex justify-between items-center ${highlightedIndex === i ? "bg-cyan-600" : "hover:bg-gray-800"}`}>
+  onClick={() => {
+    const price = Number(variant.price || 0);
+    const cp = Number(variant.cp || 0);
+    const label = variant.label || "Default";
+    setCart((prev) => {
+      const index = prev.findIndex(
+        (item) => item.id === p.id && item.selectedVariant === label
+      );
+      if (index !== -1) {
+        const updated = [...prev];
+        updated[index] = {
+          ...updated[index],
+          qty: updated[index].qty + 1,
+          total: (updated[index].qty + 1) * price,
+        };
+        return updated;
+      }
+      return [...prev, {
+        ...p,
+        selectedVariant: label,
+        price,
+        cp,
+        itemDiscount: 0,
+        qty: 1,
+        total: price,
+      }];
+    });
+    setSearch(""); setHighlightedIndex(0);
+  }}
+  className={`px-3 py-2 cursor-pointer flex justify-between items-center ${highlightedIndex === i ? "bg-cyan-600" : "hover:bg-gray-800"}`}>
               <div className="flex gap-3 items-center">
                 {p.image && (
                   <Image
@@ -921,6 +982,7 @@ const generateInvoice = async (finalDiscount = 0) => {
     </div>
   );
 
+
   // ─── RENDER ─────────────────────────────────────────────
 
   return (
@@ -928,9 +990,10 @@ const generateInvoice = async (finalDiscount = 0) => {
 
       {/* HEADER */}
       <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700">
-        <span className="font-semibold text-lg">POS</span>
-        <div className="flex items-center gap-2">
+        <span className="font-semibold text-lg flex gap-3">POS 
           <SyncStatus />
+        </span>
+        <div className="flex items-center gap-2">
 
           {/* ✅ item count + profit in header */}
           {/* {cart.length > 0 && (
@@ -945,11 +1008,11 @@ const generateInvoice = async (finalDiscount = 0) => {
           )} */}
 
           <button onClick={() => window.open("https://www.kirananeeds.com/admin/products", "_blank")}
-            className="text-sm md:text-md bg-blue-600 px-2 py-1 rounded">+ Item</button>
+            className="text-xs md:text-xl bg-blue-600 px-2 py-1 rounded-full">+ Item</button>
           <button onClick={() => setShowCustomersModal(true)}
-            className="text-sm md:text-md bg-blue-600 px-2 py-1 rounded">+ Customer (F5)</button>
+            className="text-xs md:text-xl bg-blue-600 px-2 py-1 rounded-full">+ Customer (F5)</button>
           <button onClick={() => window.open("/customer-ledger", "_blank")}
-            className="text-sm md:text-md bg-purple-600 px-2 py-1 rounded">Ledger</button>
+            className="text-xs md:text-xl bg-purple-600 px-2 py-1 rounded-full">Ledger</button>
         </div>
       </div>
 
@@ -976,9 +1039,13 @@ const generateInvoice = async (finalDiscount = 0) => {
       </div>
 
       {/* MOBILE: tab layout */}
-      <div className="flex md:hidden flex-1 flex-col overflow-hidden">
+      <div className="flex md:hidden
+       flex-1 flex-col overflow-hidden"
+       onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}>
         <div className="flex border-b border-gray-700">
           <button onClick={() => setActiveTab("cart")}
+          
             className={`flex-1 py-2 text-sm font-medium ${activeTab === "cart" ? "border-b-2 border-cyan-400 text-cyan-400" : "text-gray-400"}`}>
             🛒 Cart {cart.length > 0 && (
               <span className="ml-1 bg-cyan-600 text-white text-xs px-1.5 rounded-full">{getTotalQty()}</span>

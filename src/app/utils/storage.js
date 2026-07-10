@@ -118,25 +118,29 @@ export const saveOrder = async (order) => {
     created_at: order.created_at || new Date().toISOString(),
   };
 
+  // Always write locally first — this is the source of truth if offline
   await db.put("orders", record);
 
   if (navigator.onLine) {
     const { data, error } = await supabase
       .from("orders")
       .upsert([record], { onConflict: "order_id" })
-      .select(); // ✅ add .select() so Supabase returns what it did
+      .select();
 
-    console.log("Supabase order save result:", { data, error }); // ✅ check this
     if (error) {
       console.error("Supabase order sync error:", error);
+      // fall back to queue so it retries later instead of being lost
       await enqueue("insert", "orders", record, "order_id");
+      return { record, synced: false, error };
     }
+
+    return { record, synced: true, data };
   } else {
     await enqueue("insert", "orders", record, "order_id");
+    return { record, synced: false, queued: true };
   }
-
-  return record;
 };
+
 // Get all POS orders (from IndexedDB)
 export const getOrders = async () => {
   const db = await getDB();

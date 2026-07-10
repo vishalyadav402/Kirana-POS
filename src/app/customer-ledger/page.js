@@ -58,9 +58,13 @@ function CustomerLedgerContent() {
       (sum, p) => sum + Number(p.amount || 0), 0
     );
     const totalProfit = custOrders.reduce((sum, o) => {
-      const gross = (o.items || []).reduce((s, item) =>
-        s + (Number(item.price || 0) - Number(item.cp || 0)) * Number(item.qty || 1), 0
-      );
+      const gross = (o.items || []).reduce((s, item) => {
+        const cp = Number(item.cp || 0);
+        if (cp <= 0) return s; // ✅ skip items with no CP entered
+        const price = Number(item.price || 0);
+        const qty = Number(item.qty || 1);
+        return s + (price - cp) * qty;
+      }, 0);
       return sum + gross - Number(o.discount || 0);
     }, 0);
     const lastOrder = custOrders[0];
@@ -100,8 +104,8 @@ function CustomerLedgerContent() {
   const customersWithUdhar = rows.filter((r) => r.udharRemaining > 0).length;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-2xl mx-auto px-4 py-6">
+    <div className="min-h-screen h-screen flex flex-col">
+      <div className="px-2 py-6 md:max-w-7xl md:mx-auto">
 
         {/* HEADER */}
         <div className="flex items-center justify-between mb-5">
@@ -139,11 +143,11 @@ function CustomerLedgerContent() {
         </div>
 
         {/* SEARCH + FILTER */}
-        <div className="flex gap-2 mb-4">
+        <div className="flex gap-2 mb-4 sticky top-0 z-20 bg-white py-2 -mx-4 px-4">
           <div className="relative flex-1">
             <input value={search} onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name or mobile..."
-              className="w-full border rounded-lg px-3 py-2 text-sm bg-white pr-8 shadow-sm" />
+              className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 bg-white placeholder-gray-400 pr-8 shadow-sm" />
             {search && (
               <button onClick={() => setSearch("")}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
@@ -151,6 +155,7 @@ function CustomerLedgerContent() {
               </button>
             )}
           </div>
+
           <button onClick={() => setFilterUdhar(!filterUdhar)}
             className={`text-xs px-3 py-2 rounded-lg border font-medium shadow-sm ${
               filterUdhar
@@ -192,7 +197,7 @@ function CustomerLedgerContent() {
 
               return (
                 <div key={r.id} onClick={() => setSelected(r)}
-                  className="bg-white border rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer hover:shadow-md transition-shadow">
+                  className="bg-white border rounded-xl px-2 py-3 flex items-center gap-3 cursor-pointer hover:shadow-md transition-shadow">
 
                   {/* Avatar */}
                   <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-bold text-sm flex-shrink-0">
@@ -201,21 +206,25 @@ function CustomerLedgerContent() {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-semibold text-sm text-gray-800 truncate">{r.name}</p>
+                    <div className="capitalize gap-2">
+                      <p className="font-semibold text-sm text-gray-800">{r.name}</p>
+                      <p className="font-semibold text-xs md:text-sm text-gray-800">{r.address}</p>
+                      <div className="flex self-center gap-3">
+                        {r.mobile && <p className="text-xs font-semibold text-gray-400">{r.mobile}</p>}
                       {r.udharRemaining > 0 && (
                         <span className="text-[10px] px-1.5 py-0.5 bg-orange-100 text-orange-600 rounded-full font-medium flex-shrink-0">
                           udhar
                         </span>
                       )}
+</div>
+
                     </div>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      {r.mobile && <p className="text-xs text-gray-400">{r.mobile}</p>}
                       {r.totalOrders > 0 && (
-                        <p className="text-xs text-gray-400">· {r.totalOrders} orders</p>
+                        <p className="text-xs font-semibold text-gray-500">· {r.totalOrders} Orders</p>
                       )}
                       {lastDate && (
-                        <p className="text-xs text-gray-400">· last {lastDate}</p>
+                        <p className="text-xs text-gray-500 font-thin">· last {lastDate}</p>
                       )}
                     </div>
                   </div>
@@ -227,11 +236,11 @@ function CustomerLedgerContent() {
                       ₹{r.totalProfit.toFixed(0)} profit
                     </p>
                     {r.udharRemaining > 0 ? (
-                      <p className="text-xs text-orange-500 font-medium">
-                        ₹{r.udharRemaining.toFixed(0)} due
+                      <p className="text-md text-orange-500 font-semibold">
+                        ₹{r.udharRemaining.toFixed(0)} Due
                       </p>
                     ) : (
-                      <p className="text-xs text-green-500">clear ✅</p>
+                      <p className="text-xs text-green-500">No Dues ✅</p>
                     )}
                   </div>
 
@@ -249,6 +258,7 @@ function CustomerLedgerContent() {
           isOpen={!!selected}
           customerId={selected.id}
           name={selected.name}
+          address={selected.address}
           phone={selected.mobile}
           onClose={() => {
       setSelected(null);
