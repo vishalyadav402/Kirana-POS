@@ -104,8 +104,8 @@ function CustomerLedgerContent() {
   const customersWithUdhar = rows.filter((r) => r.udharRemaining > 0).length;
 
   return (
-    <div className="min-h-screen h-screen flex flex-col">
-      <div className="px-2 py-6 md:max-w-7xl md:mx-auto">
+    <div className="md:p-6 p-3 mx-auto max-w-2xl">
+      <>
 
         {/* HEADER */}
         <div className="flex items-center justify-between mb-5">
@@ -250,7 +250,7 @@ function CustomerLedgerContent() {
             })}
           </div>
         )}
-      </div>
+      </>
 
       {/* CUSTOMER ACCOUNT MODAL */}
       {selected && (

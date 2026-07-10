@@ -83,7 +83,7 @@ export default function BillingHistory() {
     ? ((totalProfit / totalRevenue) * 100).toFixed(1) : 0;
 
   return (
-    <div className="md:p-6 mx-auto max-w-2xl">
+    <div className="md:p-6 p-3 mx-auto max-w-2xl">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-bold">🧾 Billing History</h1>
         <button onClick={loadBills}
