@@ -361,7 +361,7 @@ const sendUdharReminder = () => {
                   ))}
                   {manualUdhar.length > 0 && (
                     <div className="border-t pt-2 flex justify-between text-sm font-semibold">
-                      <span>Total Manual Udhar</span>
+                      <span className="text-gray-700">Total Manual Udhar</span>
                       <span className="text-orange-600">₹{totalManualUdharGiven.toFixed(2)}</span>
                     </div>
                   )}

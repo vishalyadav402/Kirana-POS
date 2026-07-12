@@ -278,7 +278,7 @@ export default function BillingHistory() {
                       <tfoot>
                         <tr className="border-t">
                           <td colSpan={3} className="pt-2 text-right text-gray-500">Subtotal</td>
-                          <td className="pt-2 text-right font-medium">₹{bill.total}</td>
+                          <td className="pt-2 text-right font-medium text-gray-700">₹{bill.total}</td>
                           <td />
                         </tr>
                         {discount > 0 && (
@@ -289,8 +289,8 @@ export default function BillingHistory() {
                           </tr>
                         )}
                         <tr>
-                          <td colSpan={3} className="pt-1 font-semibold text-right text-gray-700">Net Total</td>
-                          <td className="pt-1 font-bold text-right text-purple-700">₹{netTotal.toFixed(0)}</td>
+                          <td colSpan={3} className="pt-1 text-xl font-semibold text-right text-gray-700">Net Total</td>
+                          <td className="pt-1 font-bold text-xl text-right text-purple-700">₹{netTotal.toFixed(0)}</td>
                           <td />
                         </tr>
                         <tr>
