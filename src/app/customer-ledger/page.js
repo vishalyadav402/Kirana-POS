@@ -12,7 +12,7 @@ function CustomerLedgerContent() {
   const [selected, setSelected] = useState(null);
   const [search, setSearch] = useState("");
   const [filterUdhar, setFilterUdhar] = useState(false);
-
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   
   useEffect(() => { loadLedger(); }, []);
 
@@ -104,7 +104,7 @@ function CustomerLedgerContent() {
   const customersWithUdhar = rows.filter((r) => r.udharRemaining > 0).length;
 
   return (
-    <div className="md:p-6 p-3 mx-auto max-w-2xl">
+    <div className="md:p-6 p-3 mx-auto max-w-2xl bg-gray-100">
       <>
 
         {/* HEADER */}
@@ -143,13 +143,20 @@ function CustomerLedgerContent() {
         </div>
 
         {/* SEARCH + FILTER */}
-        <div className="flex gap-2 mb-4 sticky top-0 z-20 bg-white py-2 -mx-4 px-4">
+        <div className={`flex gap-2 mb-4 py-2 -mx-4 px-4 transition-all ${
+          isSearchFocused ? "sticky top-0 z-20 bg-white shadow-sm" : ""
+        }`}>
           <div className="relative flex-1">
-            <input value={search} onChange={(e) => setSearch(e.target.value)}
+            <input value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={() => setIsSearchFocused(false)}
               placeholder="Search by name or mobile..."
-              className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 bg-white placeholder-gray-400 pr-8 shadow-sm" />
+              className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900 bg-white pr-8 shadow-sm" />
             {search && (
-              <button onClick={() => setSearch("")}
+              <button
+                onMouseDown={(e) => e.preventDefault()} // ✅ keeps input focused when clearing
+                onClick={() => setSearch("")}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                 ✕
               </button>

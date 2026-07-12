@@ -143,7 +143,13 @@ const sendUdharReminder = () => {
         <div className="bg-purple-600 text-white px-5 py-4 rounded-t-2xl flex items-start justify-between">
           <div>
             <p className="font-bold text-lg leading-tight capitalize">{name} {address}</p>
-            {phone && <p className="text-purple-200 text-sm mt-0.5">{phone}</p>}
+            <div className="flex gap-2 justify-center items-center">
+            {phone && <p className="text-purple-200 text-xl mt-0.5">{phone}</p>}
+            <button onClick={sendUdharReminder}
+              className="bg-green-600 hover:bg-green-700 text-white p-2 rounded-lg text-sm font-medium flex items-center justify-center">
+              📩 Send Reminder on Whatsapp
+            </button>
+            </div>
           </div>
           <button onClick={onClose}
             className="text-purple-200 hover:text-white text-xl leading-none mt-0.5">✕</button>
@@ -156,26 +162,26 @@ const sendUdharReminder = () => {
         ) : (
           <>
             {/* STAT CARDS */}
-            <div className="grid grid-cols-4 gap-3 px-5 py-4 border-b">
-              <div className="bg-purple-50 rounded-xl p-3 text-center">
+            <div className="grid grid-cols-4 gap-3 px-5 py-2 border-b">
+              <div className="bg-purple-50 rounded-xl p-2 md:p-3 text-center">
                 <p className="text-xs text-gray-400">Total Orders</p>
                 <p className="md:text-2xl text-md font-bold text-purple-700">{totalOrders}</p>
               </div>
-              <div className="bg-green-50 rounded-xl p-3 text-center">
+              <div className="bg-green-50 rounded-xl p-2 md:p-3 text-center">
                 <p className="text-xs text-gray-400">Total Billed</p>
                 <p className="md:text-2xl text-md font-bold text-green-700">₹{totalBilled.toFixed(0)}</p>
                 {totalDiscounts > 0 && (
                   <p className="text-[10px] text-gray-400">₹{totalDiscounts.toFixed(0)} saved</p>
                 )}
               </div>
-              <div className="bg-blue-50 rounded-xl p-3 text-center">
+              <div className="bg-blue-50 rounded-xl p-2 md:p-3 text-center">
                 <p className="text-xs text-gray-400">Your Profit</p>
                 <p className={`md:text-2xl text-md font-bold ${totalProfit >= 0 ? "text-blue-600" : "text-red-500"}`}>
                   ₹{totalProfit.toFixed(0)}
                 </p>
                 <p className="text-[10px] text-gray-400">{avgMargin}% margin</p>
               </div>
-              <div className={`rounded-xl p-3 text-center ${udharRemaining > 0 ? "bg-red-50" : "bg-green-50"}`}>
+              <div className={`rounded-xl p-2 md:p-3 text-center ${udharRemaining > 0 ? "bg-red-50" : "bg-green-50"}`}>
                 <p className="text-xs text-gray-400">Udhar Left</p>
                 <p className={`md:text-2xl text-md font-bold ${udharRemaining > 0 ? "text-red-500" : "text-green-600"}`}>
                   ₹{udharRemaining.toFixed(0)}
@@ -186,13 +192,7 @@ const sendUdharReminder = () => {
                 )}
               </div>
             </div>
-             {/* ✅ Send udhar balance on WhatsApp, anytime, on demand */}
-                  <div className="px-5 pt-1">
-                    <button onClick={sendUdharReminder}
-                      className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2">
-                      📩 Send Udhar Reminder on Whatsapp
-                    </button>
-                  </div>
+            
 
             {/* ✅ ADD UDHAR + REPAY SECTION */}
             <div className="px-5 py-3 border-b bg-white space-y-3">
@@ -215,7 +215,7 @@ const sendUdharReminder = () => {
                     <input type="number" value={udharAmount}
                       onChange={(e) => setUdharAmount(e.target.value)}
                       placeholder="Amount"
-                      className="flex-1 border rounded-lg px-3 py-2 text-sm" />
+                      className="flex-1 border rounded-lg px-3 py-2 text-gray-700 text-sm" />
                     <button onClick={recordManualUdhar}
                       className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
                       Add
@@ -224,7 +224,7 @@ const sendUdharReminder = () => {
                   <input type="text" value={udharComment}
                     onChange={(e) => setUdharComment(e.target.value)}
                     placeholder="Comment (e.g. Cash given, Sugar given)"
-                    className="w-full border rounded-lg px-3 py-2 text-sm" />
+                    className="w-full border rounded-lg px-3 py-2 text-gray-700 text-sm" />
                 </div>
               )}
 
@@ -233,21 +233,21 @@ const sendUdharReminder = () => {
                   <p className="text-xs font-semibold text-orange-700 mb-2">
                     Record Repayment (₹{udharRemaining.toFixed(0)} remaining)
                   </p>
-                  <input type="text" value={repayNote}
-                    onChange={(e) => setRepayNote(e.target.value)}
-                    placeholder="Note (optional, e.g. paid via UPI)"
-                    className="w-full border rounded-lg px-3 py-2 text-sm" />
-                  <div className="flex gap-2 mt-2">
+                  
+                  <div className="flex gap-2 mb-2">
                     <input type="number" value={repayAmount}
                       onChange={(e) => setRepayAmount(e.target.value)}
                       placeholder="Amount"
-                      className="flex-1 border rounded-lg px-3 py-2 text-sm" />
+                      className="flex-1 text-gray-700 border rounded-lg px-3 py-2 text-sm" />
                     <button onClick={recordRepayment}
                       className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
                       Record
                     </button>
                   </div>
-                  
+                  <input type="text" value={repayNote}
+                    onChange={(e) => setRepayNote(e.target.value)}
+                    placeholder="Note (optional, e.g. paid via UPI)"
+                    className="w-full border rounded-lg px-3 py-2 text-gray-700 text-sm" />
                 </div>
               )}
             </div>

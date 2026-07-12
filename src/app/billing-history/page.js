@@ -10,6 +10,7 @@ export default function BillingHistory() {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterDate, setFilterDate] = useState("all");
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
 
   useEffect(() => { loadBills(); }, []);
 
@@ -84,9 +85,9 @@ export default function BillingHistory() {
     ? ((totalProfit / totalRevenue) * 100).toFixed(1) : 0;
 
   return (
-    <div className="md:p-6 p-3 mx-auto max-w-2xl">
+    <div className="md:p-6 p-3 mx-auto max-w-2xl bg-gray-100">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-bold">🧾 Billing History</h1>
+        <h1 className="text-xl font-bold text-black">🧾 Billing History</h1>
         <button onClick={loadBills}
           className="text-xs bg-gray-100 border px-3 py-1.5 rounded-md text-gray-600 hover:bg-gray-200">
           🔄 Refresh
@@ -139,20 +140,27 @@ export default function BillingHistory() {
       </div>
 
       {/* ─── SEARCH + STATUS FILTER ─── */}
-      <div className="sticky top-0 z-30 py-2 -mx-4 px-4 md:-mx-6 md:px-6 flex gap-2">
-        <div className="relative bg-gray-100 flex-1">
+      <div className={`py-2 -mx-4 px-4 md:-mx-6 md:px-6 flex gap-2 transition-all ${
+        isSearchFocused ? "sticky top-0 z-30 bg-white shadow-sm" : ""
+      }`}>
+        <div className="relative bg-gray-100 rounded-md flex-1">
           <input type="text" placeholder="Search name, bill no, phone..."
-            value={search} onChange={(e) => setSearch(e.target.value)}
-            className="border rounded-md p-2 w-full pr-8 text-sm" />
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onFocus={() => setIsSearchFocused(true)}
+            onBlur={() => setIsSearchFocused(false)}
+            className="border rounded-md p-2 text-gray-700 w-full pr-8 text-sm bg-gray-100" />
           {search && (
-            <button onClick={() => setSearch("")}
+            <button
+              onMouseDown={(e) => e.preventDefault()} // ✅ keeps input focused
+              onClick={() => setSearch("")}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
               ✕
             </button>
           )}
         </div>
         <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
-          className="border rounded-md p-2 text-sm bg-white">
+          className="border rounded-md p-2 text-sm text-gray-700 bg-gray-100">
           <option value="all">All</option>
           <option value="completed">Completed</option>
           <option value="udhar">Udhar</option>

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import {
   getCustomers,
   addCustomer,
@@ -41,9 +41,24 @@ const Customers = ({ isOpen, onClose }) => {
     setCustomers((data || []).reverse());
   };
 
+  const nameOrMobileMatches = useMemo(() => {
+    if (editId) return []; // don't warn while editing an existing customer
+    const query = form.name.trim().toLowerCase();
+    const mobileQuery = form.mobile.trim();
+    if (!query && !mobileQuery) return [];
+
+    return customers
+      .filter((c) => {
+        const nameMatch = query && c.name?.toLowerCase().includes(query);
+        const mobileMatch = mobileQuery.length >= 4 && c.mobile?.includes(mobileQuery);
+        return nameMatch || mobileMatch;
+      })
+      .slice(0, 5);
+  }, [form.name, form.mobile, customers, editId]);
+
   const saveCustomer = async () => {
-    if (!form.name || !form.mobile) {
-      alert("Name & Mobile required");
+    if (!form.name.trim()) {
+      alert("Name required");
       return;
     }
     if (editId) {
@@ -54,7 +69,6 @@ const Customers = ({ isOpen, onClose }) => {
     }
     setForm({ name: "", mobile: "", address: "" });
     loadCustomers();
-    // ✅ re-focus after save
     setTimeout(() => nameInputRef.current?.focus(), 100);
   };
 
@@ -98,26 +112,52 @@ const Customers = ({ isOpen, onClose }) => {
         </div>
 
         {/* Form */}
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          <input
-            ref={nameInputRef} // ✅ attached here
-            placeholder="Name"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="border capitalize p-2 rounded"
-          />
-          <input
-            placeholder="Mobile"
-            value={form.mobile}
-            onChange={(e) => setForm({ ...form, mobile: e.target.value })}
-            className="border p-2 rounded"
-          />
-          <input
-            placeholder="Address"
-            value={form.address}
-            onChange={(e) => setForm({ ...form, address: e.target.value })}
-            className="border capitalize p-2 rounded"
-          />
+        <div className="mb-4">
+          <div className="grid grid-cols-3 gap-2">
+            <input
+              ref={nameInputRef}
+              placeholder="Name"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className="border capitalize p-2 rounded"
+            />
+           
+            <input
+              placeholder="Mobile (optional)"
+              value={form.mobile}
+              onChange={(e) => setForm({ ...form, mobile: e.target.value })}
+              className="border p-2 rounded"
+            />
+            <input
+              placeholder="Address"
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+              className="border capitalize p-2 rounded"
+            />
+          </div>
+
+          {nameOrMobileMatches.length > 0 && (
+            <div className="mt-2 bg-yellow-50 border border-yellow-300 rounded-md p-2">
+              <p className="text-xs font-semibold text-yellow-700 mb-1">
+                ⚠️ Possible existing customer{nameOrMobileMatches.length > 1 ? "s" : ""} found
+              </p>
+              <div className="space-y-1">
+                {nameOrMobileMatches.map((c) => (
+                  <div
+                    key={c.id}
+                    onClick={() => handleEdit(c)}
+                    className="flex items-center justify-between bg-white text-gray-700 border rounded px-2 py-1 cursor-pointer hover:bg-yellow-100 text-xs"
+                  >
+                    <span className="font-medium">{c.name}</span>
+                    <span className="text-gray-500">{c.mobile}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-500 mt-1">
+                Tap a match to edit their record instead of creating a duplicate.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="flex gap-3 mb-6">
