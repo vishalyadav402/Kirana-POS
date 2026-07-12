@@ -206,7 +206,7 @@ export default function BillingHistory() {
                   onClick={() => setExpandedId(expanded ? null : bill.order_id)}>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-medium text-sm truncate">{bill.name || "Walk-in"}</p>
+                      <p className="font-medium text-sm text-gray-700 truncate">{bill.name || "Walk-in"}</p>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
                         bill.status === "udhar" ? "bg-orange-100 text-orange-600" :
                         bill.status === "split" ? "bg-blue-100 text-blue-600" :
@@ -253,22 +253,22 @@ export default function BillingHistory() {
                           return (
                             <tr key={i} className="border-b border-gray-100">
                               <td className="py-1">
-                                <p className="font-medium">{item.name}</p>
+                                <p className="font-medium text-gray-700">{item.name}</p>
                                 {item.selectedVariant && (
-                                  <p className="text-gray-400">{item.selectedVariant}</p>
+                                  <p className="text-gray-700">{item.selectedVariant}</p>
                                 )}
                               </td>
-                              <td className="text-right py-1">{item.qty}</td>
+                              <td className="text-right py-1 text-gray-700">{item.qty}</td>
                               <td className="text-right py-1 text-gray-400">
                                 {item.cp ? `₹${item.cp}` : "—"}
                               </td>
-                              <td className="text-right py-1">₹{item.price}</td>
+                              <td className="text-right py-1 text-gray-700">₹{item.price}</td>
                               <td className="text-right py-1">
                                 <p className={`font-medium ${itemProfit >= 0 ? "text-blue-600" : "text-red-500"}`}>
                                   {itemProfit >= 0 ? "+" : ""}₹{itemProfit.toFixed(0)}
                                 </p>
                                 {margin !== null && (
-                                  <p className="text-gray-400">{margin}%</p>
+                                  <p className="text-gray-700">{margin}%</p>
                                 )}
                               </td>
                             </tr>
