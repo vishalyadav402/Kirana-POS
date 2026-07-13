@@ -312,19 +312,24 @@ export default function BillingHistory() {
                            bill.status === "split" ? "Split" : "Paid"}
                         </span>
                       </div>
-                      {bill.status === "udhar" && (
-                        <div className="flex justify-between text-orange-500 font-semibold">
-                          <span>Udhar Amount</span>
-                          <span>₹{netTotal.toFixed(0)}</span>
+
+                      {/* ✅ Paid Amount — show whenever something was paid */}
+                      {(bill.status === "completed" || bill.status === "split") && (
+                        <div className="flex justify-between text-green-600 font-semibold">
+                          <span>Paid Amount</span>
+                          <span>✅ ₹{Number(bill.paid_amount ?? netTotal).toFixed(2)}</span>
                         </div>
                       )}
-                      {bill.status === "completed" && (
-                        <div className="flex justify-between text-green-600 font-semibold">
-                          <span>Paid</span>
-                          <span>✅ ₹{netTotal.toFixed(0)}</span>
+
+                      {/* ✅ Udhar Amount — show whenever something is owed */}
+                      {(bill.status === "udhar" || bill.status === "split") && (
+                        <div className="flex justify-between text-orange-500 font-semibold">
+                          <span>Udhar Amount</span>
+                          <span>₹{Number(bill.udhar_amount ?? netTotal).toFixed(2)}</span>
                         </div>
                       )}
                     </div>
+
                     <button
                       onClick={() => printInvoiceFromBill(bill)}
                       className="mt-2 w-full text-xs bg-blue-50 border border-blue-200 text-blue-700 py-1.5 rounded-md hover:bg-blue-100">

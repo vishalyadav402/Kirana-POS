@@ -82,7 +82,7 @@ const sendUdharReminder = () => {
   const totalDiscounts = orders.reduce((sum, o) => sum + Number(o.discount || 0), 0);
   const totalUdharGiven = orders
     .filter((o) => o.status === "udhar" || o.status === "split")
-    .reduce((sum, o) => sum + Number(o.total || 0) - Number(o.discount || 0), 0);
+    .reduce((sum, o) => sum + Number(o.udhar_amount ?? (Number(o.total || 0) - Number(o.discount || 0))), 0);
   const totalManualUdharGiven = manualUdhar.reduce(
     (sum, m) => sum + Number(m.amount || 0), 0
   ); // ✅ new

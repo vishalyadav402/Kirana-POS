@@ -552,6 +552,12 @@ const generateInvoice = async (finalDiscount = 0) => {
         total: total,
         discount: finalDiscount,
         status: billStatus,
+        udhar_amount: billStatus === "udhar" ? total
+                    : billStatus === "split" ? udharAmount
+                    : 0,
+        paid_amount: billStatus === "udhar" ? 0
+                   : billStatus === "split" ? Number(paidAmount || 0)
+                   : (total - finalDiscount), // ✅ new — cash/upi: full net total considered paid
         created_at: new Date().toISOString(),
       };
 

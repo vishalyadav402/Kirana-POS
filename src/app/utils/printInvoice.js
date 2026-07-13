@@ -131,9 +131,26 @@ export const printInvoiceFromBill = async (bill) => {
   doc.text(`Payment Mode :`, 2, y);
   doc.text(paymentMode.toUpperCase(), 76, y, { align: "right" }); y += 5.5;
 
+  const paidAmount = Number(bill.paid_amount ?? (paymentMode === "udhar" ? 0 : netTotal));
+  const udharAmount = Number(bill.udhar_amount ?? (paymentMode === "udhar" ? netTotal : 0));
+
   if (paymentMode !== "udhar") {
     doc.text(`Paid Amount  :`, 2, y);
-    doc.text(`Rs.${netTotal.toFixed(2)}`, 76, y, { align: "right" }); y += 5.5;
+    doc.text(`Rs.${paidAmount.toFixed(2)}`, 76, y, { align: "right" }); y += 5.5;
+  }
+
+  if (udharAmount > 0) {
+    doc.setFont("courier", "bold");
+    doc.text(`Udhar (Due)  :`, 2, y);
+    doc.text(`Rs.${udharAmount.toFixed(2)}`, 76, y, { align: "right" }); y += 5.5;
+    doc.setFont("courier", "normal");
+  }
+
+  if (paymentMode === "udhar") {
+    doc.setFont("courier", "bold");
+    doc.text(`Amount Due   :`, 2, y);
+    doc.text(`Rs.${udharAmount.toFixed(2)}`, 76, y, { align: "right" }); y += 5.5;
+    doc.setFont("courier", "normal");
   }
 
   doc.setFontSize(9);

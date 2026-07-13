@@ -50,13 +50,16 @@ function CustomerLedgerContent() {
     );
     const totalUdharGiven = custOrders
       .filter((o) => o.status === "udhar" || o.status === "split")
-      .reduce((sum, o) => sum + Number(o.total || 0) - Number(o.discount || 0), 0);
+      .reduce((sum, o) => sum + Number(o.udhar_amount ?? (Number(o.total || 0) - Number(o.discount || 0))), 0);
+
     const totalManualUdharGiven = custManualUdhar.reduce(
       (sum, m) => sum + Number(m.amount || 0), 0
     ); // ✅ new
+
     const totalUdharPaidBack = custPayments.reduce(
       (sum, p) => sum + Number(p.amount || 0), 0
     );
+
     const totalProfit = custOrders.reduce((sum, o) => {
       const gross = (o.items || []).reduce((s, item) => {
         const cp = Number(item.cp || 0);
@@ -67,6 +70,7 @@ function CustomerLedgerContent() {
       }, 0);
       return sum + gross - Number(o.discount || 0);
     }, 0);
+    
     const lastOrder = custOrders[0];
 
     return {
