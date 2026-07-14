@@ -8,6 +8,7 @@ import {
   saveManualUdhar,          // ✅ new
 } from "@/app/utils/storage";
 import { toast } from "react-toastify";
+import { FaWhatsapp } from "react-icons/fa";
 
 export default function CustomerAccount({ customerId, name, address, phone, isOpen, onClose }) {
   const [orders, setOrders] = useState([]);
@@ -137,17 +138,17 @@ const sendUdharReminder = () => {
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-3">
-      <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col shadow-2xl">
+      <div className="bg-white rounded-2xl w-full max-w-xl max-h-[99vh] flex flex-col shadow-2xl">
 
         {/* HEADER */}
         <div className="bg-purple-600 text-white px-5 py-4 rounded-t-2xl flex items-start justify-between">
           <div>
             <p className="font-bold text-lg leading-tight capitalize">{name} {address}</p>
-            <div className="flex gap-2 justify-center items-center">
+            <div className="flex gap-2 items-center">
             {phone && <p className="text-purple-200 text-xl mt-0.5">{phone}</p>}
             <button onClick={sendUdharReminder}
-              className="bg-green-600 hover:bg-green-700 text-white p-2 rounded-lg text-sm font-medium flex items-center justify-center">
-              📩 Send Reminder on Whatsapp
+              className="bg-green-600 hover:bg-green-700 text-white p-1 rounded-lg text-sm font-medium flex items-center justify-center">
+              <FaWhatsapp size={'22px'} />
             </button>
             </div>
           </div>
@@ -258,8 +259,8 @@ const sendUdharReminder = () => {
                 <button key={tab} onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-2 text-xs font-medium capitalize ${
                     activeTab === tab
-                      ? "border-b-2 border-purple-600 text-purple-600"
-                      : "text-gray-400"
+                      ? "border-b-2 border-purple-600 font-semibold text-purple-600"
+                      : "text-gray-700 font-semibold"
                   }`}>
                   {tab === "orders" ? `Orders (${totalOrders})` :
                    tab === "udhar" ? `Udhar (${manualUdhar.length})` :
@@ -295,7 +296,7 @@ const sendUdharReminder = () => {
                 </div>
               )}
 
-              {activeTab === "orders" && (
+             {activeTab === "orders" && (
                 <div className="space-y-2">
                   {orders.length === 0 ? (
                     <p className="text-gray-400 text-sm text-center py-6">No orders yet</p>
@@ -305,6 +306,10 @@ const sendUdharReminder = () => {
                     const date = new Date(o.created_at).toLocaleDateString("en-IN", {
                       day: "2-digit", month: "short", year: "numeric",
                     });
+                    // ✅ paid/udhar breakdown
+                    const paidAmt = Number(o.paid_amount ?? (o.status === "udhar" ? 0 : net));
+                    const udharAmt = Number(o.udhar_amount ?? (o.status === "udhar" ? net : 0));
+
                     return (
                       <div key={o.order_id} className="border rounded-lg px-3 py-2 text-sm">
                         <div className="flex justify-between items-start">
@@ -332,6 +337,18 @@ const sendUdharReminder = () => {
                             }`}>{o.status}</span>
                           </div>
                         </div>
+
+                        {/* ✅ Paid / Udhar breakdown for split & udhar bills */}
+                        {(o.status === "split" || o.status === "udhar") && (
+                          <div className="mt-2 pt-2 border-t flex justify-between text-xs">
+                            <span className="text-green-600 font-medium">
+                              ✅ Paid: ₹{paidAmt.toFixed(0)}
+                            </span>
+                            <span className="text-orange-500 font-medium">
+                              Udhar: ₹{udharAmt.toFixed(0)}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
