@@ -10,6 +10,8 @@ import { MdClose } from "react-icons/md";
 import Image from "next/image";
 import SyncStatus from "./SyncStatus";
 import { syncAll } from "../utils/sync";
+import CashierLogin from "./CashierLogin";
+import { getActiveCashier, clearActiveCashier } from "../utils/storage";
 
 export default function POS() {
   const [products, setProducts] = useState([]);
@@ -45,6 +47,22 @@ export default function POS() {
   const videoRef = useRef(null);
   const controlsRef = useRef(null);
   const isProcessing = useRef(false); // ✅ hard duplicate guard
+
+
+  const [activeCashier, setActiveCashierState] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    const cashier = getActiveCashier();
+    setActiveCashierState(cashier);
+    setCheckingSession(false);
+  }, []);
+
+  const handleLogout = () => {
+    clearActiveCashier();
+    setActiveCashierState(null);
+  };
+
 
   // ─── EFFECTS ────────────────────────────────────────────
 
@@ -558,6 +576,8 @@ const generateInvoice = async (finalDiscount = 0) => {
         paid_amount: billStatus === "udhar" ? 0
                    : billStatus === "split" ? Number(paidAmount || 0)
                    : (total - finalDiscount), // ✅ new — cash/upi: full net total considered paid
+        cashier_id: activeCashier?.id || null, // ✅ new
+        cashier_name: activeCashier?.name || "Unknown", // ✅ new
         created_at: new Date().toISOString(),
       };
 
@@ -951,6 +971,10 @@ const generateInvoice = async (finalDiscount = 0) => {
 
       {/* Action buttons */}
       <div className="grid grid-cols-2 gap-3 mt-2">
+         <button onClick={() => window.open("https://www.kirananeeds.com/admin/products", "_blank")}
+            className="text-lg md:text-xl bg-blue-600 p-3 rounded-md">+ New Item</button>
+          <button onClick={() => setShowCustomersModal(true)}
+            className="text-lg md:text-xl bg-blue-600 p-3 rounded-md">+Customer (F5)</button>
         <button
           onClick={() => { setCart([]); localStorage.removeItem("posCart"); toast.info("Bill cleared"); }}
           className="bg-red-600 hover:bg-red-700 p-3 rounded-lg font-semibold text-lg md:text-xl">
@@ -988,7 +1012,13 @@ const generateInvoice = async (finalDiscount = 0) => {
     </div>
   );
 
+if (checkingSession) {
+    return <div className="h-screen flex items-center justify-center bg-gray-900 text-gray-400">Loading...</div>;
+  }
 
+  if (!activeCashier) {
+    return <CashierLogin onLogin={(cashier) => setActiveCashierState(cashier)} />;
+  }
   // ─── RENDER ─────────────────────────────────────────────
 
   return (
@@ -996,29 +1026,22 @@ const generateInvoice = async (finalDiscount = 0) => {
 
       {/* HEADER */}
       <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700">
-        <span className="font-semibold text-lg flex gap-3">POS 
-          <SyncStatus />
+        <span className="font-semibold text-lg flex gap-3"> 
+          {activeCashier && (
+            <span className="text-md bg-gray-700 px-2 py-1 rounded-full text-cyan-300">
+              👤 {activeCashier.name}
+            </span>
+          )} <SyncStatus />
         </span>
         <div className="flex items-center gap-2">
-
-          {/* ✅ item count + profit in header */}
-          {/* {cart.length > 0 && (
-            <div className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-xs flex gap-3 items-center">
-              <span className="text-cyan-400 font-bold">{getTotalQty()} items</span>
-              <span className="text-gray-500">|</span>
-              <span className={`font-bold ${getProfit() >= 0 ? "text-blue-400" : "text-red-400"}`}>
-                Profit ₹{getProfit().toFixed(0)}
-              </span>
-              <span className="text-gray-400">{getMargin()}%</span>
-            </div>
-          )} */}
-
-          <button onClick={() => window.open("https://www.kirananeeds.com/admin/products", "_blank")}
-            className="text-xs md:text-xl bg-blue-600 px-2 py-1 rounded-full">+ Item</button>
-          <button onClick={() => setShowCustomersModal(true)}
-            className="text-xs md:text-xl bg-blue-600 px-2 py-1 rounded-full">+ Customer (F5)</button>
+          
+         
           <button onClick={() => window.open("/customer-ledger", "_blank")}
             className="text-xs md:text-xl bg-purple-600 px-2 py-1 rounded-full">Ledger</button>
+          {activeCashier && (
+            <button onClick={handleLogout}
+              className="text-xs md:text-xl bg-red-600 px-2 py-1 rounded-full">Logout</button>
+          )}
         </div>
       </div>
 

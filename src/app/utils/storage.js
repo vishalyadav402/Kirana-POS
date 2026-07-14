@@ -274,6 +274,34 @@ export const saveCategory = (category) => {
 };
 
 
+export const verifyCashierPin = async (pin) => {
+  const { data, error } = await supabase
+    .from("cashiers")
+    .select("*")
+    .eq("pin", pin)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data;
+};
+
+export const getActiveCashier = () => {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem("activeCashier");
+  return raw ? JSON.parse(raw) : null;
+};
+
+export const setActiveCashier = (cashier) => {
+  localStorage.setItem("activeCashier", JSON.stringify({
+    id: cashier.id, name: cashier.name, role: cashier.role,
+  }));
+};
+
+export const clearActiveCashier = () => {
+  localStorage.removeItem("activeCashier");
+};
+
 /* =========================================================
    LEDGER SYNC (pull latest before reading, when online)
 ========================================================= */
