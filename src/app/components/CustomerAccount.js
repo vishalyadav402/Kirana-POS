@@ -41,8 +41,8 @@ export default function CustomerAccount({ customerId, name, address, phone, isOp
 
 const sendUdharReminder = () => {
   const msg = udharRemaining > 0
-    ? `नमस्ते ${name}, आपका उधार बैलेंस रु${udharRemaining.toFixed(2)} है। कृपया  शीघ्र भुगतान करें। धन्यवाद! - किरानानीड्स स्टोर`
-    : `नमस्ते ${name}, आपका कोई उधार बाकी नहीं है। सब क्लियर है ✅ - किरानानीड्स स्टोर`;
+    ? `नमस्ते ${name} जी, आपका उधार बैलेंस रु ${udharRemaining.toFixed(2)} है। कृपया शीघ्र भुगतान करें। धन्यवाद! - किरानानीड्स स्टोर।`
+    : `नमस्ते ${name} जी, आपका कोई उधार बाकी नहीं है। सब क्लियर है ✅ - किरानानीड्स स्टोर।`;
   openWhatsApp(phone, msg);
 };
 // -----------------------------

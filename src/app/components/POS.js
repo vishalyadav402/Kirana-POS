@@ -48,6 +48,7 @@ export default function POS() {
   const controlsRef = useRef(null);
   const isProcessing = useRef(false); // ✅ hard duplicate guard
 
+  const [sendWhatsApp, setSendWhatsApp] = useState(true); // ✅ default checked
 
   const [activeCashier, setActiveCashierState] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -274,6 +275,8 @@ export default function POS() {
     (p.variants || []).map((variant) => ({ p, variant }))
   );
 
+
+
   // ─── CART HELPERS ───────────────────────────────────────
 
   // ✅ total accounts for item-level discounts
@@ -369,6 +372,32 @@ export default function POS() {
     else { setChangeAmount(0); setUdharAmount(total - paid); }
   };
 
+
+  const openWhatsApp = (phoneNumber, message) => {
+    if (!phoneNumber) return;
+    let clean = phoneNumber.replace(/\D/g, "");
+    if (clean.length === 10) clean = "91" + clean;
+    const url = `https://wa.me/${clean}?text=${encodeURIComponent(message)}`;
+    window.open(url, "_blank");
+  };
+
+  const buildBillWhatsAppMessage = (order, finalDiscount) => {
+    const netTotal = order.total - finalDiscount;
+    const itemLines = order.items
+      .map((i) => `• ${i.name} x${i.qty} - ₹${(i.total - Number(i.itemDiscount || 0)).toFixed(0)}`)
+      .join("\n");
+
+    let paymentLine = "";
+    if (order.status === "udhar") {
+      paymentLine = `Udhar (Due): ₹${netTotal.toFixed(2)}`;
+    } else if (order.status === "split") {
+      paymentLine = `Paid: ₹${order.paid_amount.toFixed(2)} | Udhar: ₹${order.udhar_amount.toFixed(2)}`;
+    } else {
+      paymentLine = `Paid: ₹${netTotal.toFixed(2)} (${order.status === "completed" ? paymentMode.toUpperCase() : ""})`;
+    }
+
+    return `KiranaNeeds Store - Bill ${order.order_id}\n\n${itemLines}\n\nSubtotal: ₹${order.total.toFixed(2)}${finalDiscount > 0 ? `\nDiscount: -₹${finalDiscount.toFixed(2)}` : ""}\nNet Total: ₹${netTotal.toFixed(2)}\n${paymentLine}\n\nThank you for shopping!`;
+  };
 
 const generateInvoice = async (finalDiscount = 0) => {
 
@@ -583,6 +612,11 @@ const generateInvoice = async (finalDiscount = 0) => {
 
       await saveOrder(order);
       await generateInvoice(finalDiscount);
+// ✅ send bill summary on WhatsApp if opted in and mobile is available
+      if (sendWhatsApp && customerMobile) {
+        const message = buildBillWhatsAppMessage(order, finalDiscount);
+        openWhatsApp(customerMobile, message);
+      }
 
       setCart([]);
       localStorage.removeItem("posCart");
@@ -808,12 +842,17 @@ const generateInvoice = async (finalDiscount = 0) => {
                   {/* ✅ image + name */}
                   <td className="p-2">
                     <div className="flex items-center gap-2">
-                      {item.image && (
+                      {item.image ? (
                         <Image
                           src={item.image}
                           alt={item.name}
                           width={28} height={28}
                           className="rounded object-cover flex-shrink-0"
+                          style={{ width: 28, height: 28 }}
+                        />
+                      ) : (
+                        <div
+                          className="rounded bg-gray-600 flex-shrink-0"
                           style={{ width: 28, height: 28 }}
                         />
                       )}
@@ -934,6 +973,20 @@ const generateInvoice = async (finalDiscount = 0) => {
         ))}
       </div>
 
+{/* ✅ Send bill on WhatsApp */}
+      <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={sendWhatsApp}
+          onChange={(e) => setSendWhatsApp(e.target.checked)}
+          className="w-4 h-4 accent-green-500"
+        />
+        📱 Send bill on WhatsApp
+        {!customerMobile && (
+          <span className="text-xs text-gray-500">(needs mobile number)</span>
+        )}
+      </label>
+
       {paymentMode !== "udhar" && (
         <input
           ref={paidAmountInputRef}
@@ -972,9 +1025,9 @@ const generateInvoice = async (finalDiscount = 0) => {
       {/* Action buttons */}
       <div className="grid grid-cols-2 gap-3 mt-2">
          <button onClick={() => window.open("https://www.kirananeeds.com/admin/products", "_blank")}
-            className="text-lg md:text-xl bg-blue-600 p-3 rounded-md">+ New Item</button>
+            className="text-lg md:text-md bg-gray-600 px-2 py-1 rounded-md">+ New Item</button>
           <button onClick={() => setShowCustomersModal(true)}
-            className="text-lg md:text-xl bg-blue-600 p-3 rounded-md">+Customer (F5)</button>
+            className="text-lg md:text-md bg-gray-600 px-2 py-1 rounded-md">+Customer (F5)</button>
         <button
           onClick={() => { setCart([]); localStorage.removeItem("posCart"); toast.info("Bill cleared"); }}
           className="bg-red-600 hover:bg-red-700 p-3 rounded-lg font-semibold text-lg md:text-xl">
@@ -1028,7 +1081,7 @@ if (checkingSession) {
       <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700">
         <span className="font-semibold text-lg flex gap-3"> 
           {activeCashier && (
-            <span className="text-md bg-gray-700 px-2 py-1 rounded-full text-cyan-300">
+            <span className="text-sm px-2 py-1 rounded-full text-cyan-300">
               👤 {activeCashier.name}
             </span>
           )} <SyncStatus />
@@ -1037,10 +1090,10 @@ if (checkingSession) {
           
          
           <button onClick={() => window.open("/customer-ledger", "_blank")}
-            className="text-xs md:text-xl bg-purple-600 px-2 py-1 rounded-full">Ledger</button>
+            className="text-xs md:text-lg bg-purple-600 px-3 py-1 rounded-full">Ledger</button>
           {activeCashier && (
             <button onClick={handleLogout}
-              className="text-xs md:text-xl bg-red-600 px-2 py-1 rounded-full">Logout</button>
+              className="text-xs md:text-lg bg-red-600 px-3 py-1 rounded-full">Logout</button>
           )}
         </div>
       </div>
