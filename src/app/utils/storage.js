@@ -352,3 +352,130 @@ export const pullLedgerData = async () => {
     // fail silently — local (possibly stale) data still shown
   }
 };
+
+
+
+//shipt change & opening, closing balance entry
+
+export const getOpenShift = async () => {
+  const { data, error } = await supabase
+    .from("shift_sessions")
+    .select("*")
+    .eq("status", "open")
+    .order("opened_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("getOpenShift error:", error.message, error.code, error.details, error.hint);
+    return null;
+  }
+  return data;
+};
+
+export const openShift = async (cashier, openingBalance) => {
+  const record = {
+    cashier_id: cashier.id,
+    cashier_name: cashier.name,
+    opening_balance: Number(openingBalance) || 0,
+    status: "open",
+    opened_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabase.from("shift_sessions").insert([record]).select().single();
+  if (error) { console.error("openShift error:", error); return null; }
+  return data;
+};
+
+export const closeShift = async (shiftId, closingBalance, expectedClosing) => {
+  const variance = Number(closingBalance) - Number(expectedClosing);
+  const { data, error } = await supabase
+    .from("shift_sessions")
+    .update({
+      closing_balance: Number(closingBalance),
+      expected_closing: Number(expectedClosing),
+      variance,
+      status: "closed",
+      closed_at: new Date().toISOString(),
+    })
+    .eq("id", shiftId)
+    .select()
+    .single();
+  if (error) { console.error("closeShift error:", error); return null; }
+  return data;
+};
+
+export const getCashReceivedSince = async (sinceISO) => {
+  const orders = await getOrders(); // reuse your existing IndexedDB read
+  return orders
+    .filter((o) => new Date(o.created_at) >= new Date(sinceISO) && o.payment_mode === "cash")
+    .reduce((sum, o) => sum + Number(o.paid_amount || 0), 0);
+};
+
+//purchases entry
+
+export const savePurchase = async (purchase) => {
+  const db = await getDB();
+  const record = {
+    ...purchase,
+    id: purchase.id || crypto.randomUUID(),
+    created_at: purchase.created_at || new Date().toISOString(),
+  };
+
+  // update stock + cp for each item in the purchase
+  for (const item of record.items) {
+    await updateProductStockAndCp(item.product_id, item.variant_label, item.qty, item.cost_per_unit);
+  }
+
+  if (navigator.onLine) {
+    const { error } = await supabase.from("purchases").insert([record]);
+    if (error) {
+      console.error("Purchase sync error:", error);
+      await enqueue("insert", "purchases", record, "id");
+    }
+  } else {
+    await enqueue("insert", "purchases", record, "id");
+  }
+
+  return record;
+};
+
+export const getPurchases = async () => {
+  const { data, error } = await supabase
+    .from("purchases")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) { console.error("getPurchases error:", error); return []; }
+  return data;
+};
+
+// Increments stock and updates cost price (cp) for a specific product variant
+export const updateProductStockAndCp = async (productId, variantLabel, qtyAdded, newCp) => {
+  const { data: product, error: fetchError } = await supabase
+    .from("products")
+    .select("variants")
+    .eq("id", productId)
+    .single();
+
+  if (fetchError || !product) {
+    console.error("updateProductStockAndCp fetch error:", fetchError);
+    return;
+  }
+
+  const updatedVariants = (product.variants || []).map((v) => {
+    if (v.label !== variantLabel) return v;
+    const currentStock = Number(v.stock || 0);
+    return {
+      ...v,
+      stock: currentStock + Number(qtyAdded || 0),
+      cp: Number(newCp) || v.cp, // update cost price to latest purchase price
+    };
+  });
+
+  const { error: updateError } = await supabase
+    .from("products")
+    .update({ variants: updatedVariants })
+    .eq("id", productId);
+
+  if (updateError) {
+    console.error("updateProductStockAndCp update error:", updateError);
+  }
+};

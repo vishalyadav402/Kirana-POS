@@ -3,6 +3,7 @@ import { useState, useEffect, Suspense,useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { getCustomers, getOrders, getAllUdharPayments, getAllManualUdhar, pullLedgerData  } from "@/app/utils/storage";
 import CustomerAccount from "@/app/components/CustomerAccount";
+import AppNav from "../components/AppNav";
 
 function CustomerLedgerContent() {
   const autoOpenedRef = useRef(null);
@@ -283,10 +284,13 @@ function CustomerLedgerContent() {
 
 export default function CustomerLedgerPage() {
   return (
+    <>
+    <AppNav/>
     <Suspense fallback={
       <div className="p-6 text-gray-400 text-sm">Loading ledger...</div>
     }>
       <CustomerLedgerContent />
     </Suspense>
+    </>
   );
 }

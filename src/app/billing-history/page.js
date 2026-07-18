@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { getOrders } from "@/app/utils/storage";
 import { printInvoiceFromBill } from "@/app/utils/printInvoice"; // adjust path to match your project structure
+import AppNav from "../components/AppNav";
 
 export default function BillingHistory() {
   const [bills, setBills] = useState([]);
@@ -85,6 +86,8 @@ export default function BillingHistory() {
     ? ((totalProfit / totalRevenue) * 100).toFixed(1) : 0;
 
   return (
+    <>
+    <AppNav/>
     <div className="md:p-6 p-3 mx-auto max-w-2xl bg-gray-100">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-bold text-black">🧾 Billing History</h1>
@@ -352,5 +355,6 @@ export default function BillingHistory() {
         )}
       </div>
     </div>
+    </>
   );
 }
